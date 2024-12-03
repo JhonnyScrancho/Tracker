@@ -9,15 +9,13 @@ import re
 
 class AutoTracker:
     def __init__(self):
-        """Initialize Firebase connection with proper error handling"""
         try:
             firebase_admin.get_app()
         except ValueError:
-            # Create proper credential dictionary
             cred_dict = {
                 "type": "service_account",
                 "project_id": st.secrets["firebase"]["project_id"],
-                "private_key": st.secrets["firebase"]["private_key"].replace('\\n', '\n'),  # Fix private key formatting
+                "private_key": st.secrets["firebase"]["private_key"].replace('\\n', '\n'),
                 "client_email": st.secrets["firebase"]["client_email"],
                 "client_id": st.secrets["firebase"]["client_id"],
                 "auth_uri": "https://accounts.google.com/o/oauth2/auth",
@@ -30,22 +28,13 @@ class AutoTracker:
         self.db = firestore.client()
 
     def _extract_plate(self, text):
-        """
-        Extract plate from text using regex patterns for Italian license plates
-        
-        Args:
-            text: Text to extract plate from
-            
-        Returns:
-            Extracted plate or None if not found
-        """
         if not text:
             return None
         
         patterns = [
-            r'[A-Z]{2}\s*\d{3}\s*[A-Z]{2}',  # Format XX000XX
-            r'[A-Z]{2}\s*\d{5}',              # Format XX00000
-            r'[A-Z]{2}\s*\d{4}\s*[A-Z]{1,2}'  # Other common formats
+            r'[A-Z]{2}\s*\d{3}\s*[A-Z]{2}',
+            r'[A-Z]{2}\s*\d{5}',
+            r'[A-Z]{2}\s*\d{4}\s*[A-Z]{1,2}'
         ]
         
         text = text.upper()
@@ -56,13 +45,12 @@ class AutoTracker:
         return None
 
     def scrape_dealer(self, dealer_url: str):
-        """Scrape dealer page with detailed logging"""
         if not dealer_url:
             st.warning("Inserisci l'URL del concessionario")
             return []
 
-        st.info("Inizio scraping della pagina...")
-
+        st.info("🔍 Inizio scraping della pagina...")
+        
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
@@ -70,7 +58,7 @@ class AutoTracker:
         }
         
         try:
-            st.write("Scaricando la pagina...")
+            st.write("📥 Scaricando la pagina...")
             response = requests.get(dealer_url, headers=headers, timeout=30)
             response.raise_for_status()
             
@@ -78,52 +66,67 @@ class AutoTracker:
             
             total_results = soup.select_one(".dp-list__title__count")
             if total_results:
-                st.write(f"Totale annunci trovati: {total_results.text}")
+                st.write(f"📊 Totale annunci trovati: {total_results.text}")
             
             listings = []
             dealer_id = dealer_url.split('/')[-1]
 
             articles = soup.select('article.dp-listing-item')
-            st.write(f"Trovati {len(articles)} annunci da processare")
+            st.write(f"🚗 Trovati {len(articles)} annunci da processare")
 
-            for article in articles:
+            for idx, article in enumerate(articles, 1):
                 try:
                     listing_id = article.get('id')
-                    st.write(f"Processando annuncio ID: {listing_id}")
+                    st.write(f"📝 [{idx}/{len(articles)}] Processando annuncio ID: {listing_id}")
 
-                    # Extract title, version and URL
+                    # Titolo e versione
                     title_elem = article.select_one('.dp-listing-item-title-wrapper h2')
                     version_elem = article.select_one('.dp-listing-item-title-wrapper .version')
                     title = title_elem.text.strip() if title_elem else "Titolo non disponibile"
                     version = version_elem.text.strip() if version_elem else ""
                     
+                    # URL annuncio
                     url_elem = article.select_one('.dp-listing-item-title-wrapper a')
-                    url = url_elem['href'] if url_elem else None
-                    if url:
-                        url = f"https://www.autoscout24.it{url}"
-
-                    # Extract plate from URL or title
+                    url = f"https://www.autoscout24.it{url_elem['href']}" if url_elem and 'href' in url_elem.attrs else None
+                    
+                    # Estrazione targa
                     plate = None
                     if url:
                         plate = self._extract_plate(url)
                     if not plate and title:
                         plate = self._extract_plate(title)
                     if not plate:
-                        plate = listing_id  # Use listing ID as fallback
+                        plate = listing_id
 
-                    # Get price
-                    price_elem = article.select_one('[data-testid="price-section"] .dp-listing-item__price')
-                    price_text = price_elem.text.strip() if price_elem else ""
-                    price = self._extract_price(price_text)
-                    
-                    # Get images
+                    # Immagini
                     images = []
-                    img_elements = article.select('img.dp-new-gallery__img')
+                    img_elements = article.select('img[data-src]')  # Cerchiamo sia src che data-src
                     for img in img_elements:
-                        if img.get('src'):
-                            images.append(img['src'])
+                        img_url = img.get('data-src') or img.get('src')
+                        if img_url and 'auto' in img_url:
+                            images.append(img_url)
+
+                    # Prezzi
+                    prices = {'original_price': None, 'discounted_price': None, 'has_discount': False}
+                    price_section = article.select_one('[data-testid="price-section"]')
                     
-                    # Get vehicle details
+                    if price_section:
+                        superdeal = price_section.select_one('.dp-listing-item__superdeal-container')
+                        if superdeal:
+                            original_price_elem = superdeal.select_one('.dp-listing-item__superdeal-strikethrough div')
+                            if original_price_elem:
+                                prices['original_price'] = self._extract_price(original_price_elem.text)
+                            
+                            discounted_price_elem = superdeal.select_one('.dp-listing-item__superdeal-highlight-price-span')
+                            if discounted_price_elem:
+                                prices['discounted_price'] = self._extract_price(discounted_price_elem.text)
+                            prices['has_discount'] = True
+                        else:
+                            regular_price_elem = price_section.select_one('.dp-listing-item__price')
+                            if regular_price_elem:
+                                prices['original_price'] = self._extract_price(regular_price_elem.text)
+
+                    # Dettagli veicolo
                     details = {'mileage': None, 'registration': None, 'power': None, 'fuel': None}
                     detail_items = article.select('.dp-listing-item__detail-item')
                     
@@ -143,9 +146,11 @@ class AutoTracker:
                         'plate': plate,
                         'title': title,
                         'version': version,
-                        'price': price,
+                        'original_price': prices['original_price'],
+                        'discounted_price': prices['discounted_price'],
+                        'has_discount': prices['has_discount'],
                         'dealer_id': dealer_id,
-                        'image_url': images[0] if images else None,  # Salva solo la prima immagine
+                        'image_urls': images,
                         'url': url,
                         'mileage': details['mileage'],
                         'registration': details['registration'],
@@ -155,24 +160,23 @@ class AutoTracker:
                         'active': True
                     }
                     listings.append(listing)
-                    st.write(f"✓ Annuncio processato: {title}")
+                    st.write(f"✅ Annuncio processato: {title}")
                     
                 except Exception as e:
-                    st.error(f"Errore nel parsing dell'annuncio: {str(e)}")
+                    st.error(f"❌ Errore nel parsing dell'annuncio: {str(e)}")
                     continue
                     
-            st.success(f"Scraping completato. Trovati {len(listings)} annunci validi")
+            st.success(f"🎉 Scraping completato. Trovati {len(listings)} annunci validi")
             return listings
             
         except requests.RequestException as e:
-            st.error(f"Errore nella richiesta HTTP: {str(e)}")
+            st.error(f"❌ Errore nella richiesta HTTP: {str(e)}")
             return []
         except Exception as e:
-            st.error(f"Errore imprevisto: {str(e)}")
+            st.error(f"❌ Errore imprevisto: {str(e)}")
             return []
 
     def save_listings(self, listings):
-        """Save listings to Firebase with batch write"""
         batch = self.db.batch()
         timestamp = datetime.now()
 
@@ -182,12 +186,13 @@ class AutoTracker:
             listing['last_seen'] = timestamp
             batch.set(doc_ref, listing, merge=True)
             
-            # Add to history
             history_ref = self.db.collection('history').document()
             history_data = {
                 'listing_id': listing['id'],
                 'dealer_id': listing['dealer_id'],
-                'price': listing['price'],
+                'original_price': listing['original_price'],
+                'discounted_price': listing['discounted_price'],
+                'has_discount': listing['has_discount'],
                 'date': timestamp,
                 'event': 'listed'
             }
@@ -196,7 +201,6 @@ class AutoTracker:
         batch.commit()
 
     def mark_inactive_listings(self, dealer_id: str, active_ids: list):
-        """Mark listings as inactive if they're no longer present"""
         listings_ref = self.db.collection('listings')
         query = listings_ref.where('dealer_id', '==', dealer_id).where('active', '==', True)
         
@@ -204,14 +208,12 @@ class AutoTracker:
         
         for doc in query.stream():
             if doc.id not in active_ids:
-                # Update listing
                 doc_ref = listings_ref.document(doc.id)
                 batch.update(doc_ref, {
                     'active': False,
                     'deactivation_date': datetime.now()
                 })
                 
-                # Add to history
                 history_ref = self.db.collection('history').document()
                 history_data = {
                     'listing_id': doc.id,
@@ -224,22 +226,38 @@ class AutoTracker:
         batch.commit()
 
     def get_dealer_stats(self, dealer_id: str):
-        """Get dealer statistics"""
         stats = {
             'total_active': 0,
             'reappeared_plates': 0,
-            'avg_listing_duration': 0
+            'avg_listing_duration': 0,
+            'total_discount_count': 0,
+            'avg_discount_percentage': 0
         }
         
         try:
-            # Get active listings count
             active_listings = self.db.collection('listings')\
                 .where('dealer_id', '==', dealer_id)\
                 .where('active', '==', True)\
                 .stream()
-            stats['total_active'] = len(list(active_listings))
             
-            # Calculate history stats
+            active_listings_list = list(active_listings)
+            stats['total_active'] = len(active_listings_list)
+            
+            # Calcolo statistiche sconti
+            discount_count = 0
+            total_discount_percentage = 0
+            
+            for listing in active_listings_list:
+                data = listing.to_dict()
+                if data.get('has_discount') and data.get('original_price') and data.get('discounted_price'):
+                    discount_count += 1
+                    discount_percentage = ((data['original_price'] - data['discounted_price']) / data['original_price']) * 100
+                    total_discount_percentage += discount_percentage
+            
+            stats['total_discount_count'] = discount_count
+            if discount_count > 0:
+                stats['avg_discount_percentage'] = total_discount_percentage / discount_count
+            
             history = self.db.collection('history')\
                 .where('dealer_id', '==', dealer_id)\
                 .stream()
@@ -252,10 +270,8 @@ class AutoTracker:
                     listings_history[listing_id] = []
                 listings_history[listing_id].append(event_data)
             
-            # Count reappeared listings
             stats['reappeared_plates'] = len([l for l in listings_history.values() if len(l) > 1])
             
-            # Calculate average duration
             if stats['total_active'] > 0:
                 total_duration = 0
                 count = 0
@@ -271,23 +287,23 @@ class AutoTracker:
                     stats['avg_listing_duration'] = total_duration / count
             
         except Exception as e:
-            st.error(f"Errore nel calcolo delle statistiche: {str(e)}")
+            st.error(f"❌ Errore nel calcolo delle statistiche: {str(e)}")
         
         return stats
 
     def _extract_price(self, text):
-        """Extract numeric price from text"""
         if not text:
             return None
             
-        price_text = re.sub(r'[^\d.]', '', text)
+        text = text.replace('€', '').replace('.', '').replace(',', '.')
+        text = re.sub(r'[^\d.]', '', text)
+        
         try:
-            return float(price_text)
+            return float(text)
         except ValueError:
             return None
             
     def _extract_number(self, text):
-        """Extract numeric value from text"""
         if not text:
             return None
             
