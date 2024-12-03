@@ -2,9 +2,10 @@ import streamlit as st
 from tracker import AutoTracker
 import time
 from datetime import datetime, timedelta
+import pandas as pd  # Aggiunto l'import di pandas
 
 st.set_page_config(
-    page_title="AutoScout24 Tracker",
+    page_title="Tracker",
     page_icon="🚗",
     layout="wide"
 )
