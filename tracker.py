@@ -13,8 +13,26 @@ class AutoTracker:
             firebase_admin.get_app()
         except ValueError:
             # Only initialize if not already done
-            cred = credentials.Certificate(st.secrets["firebase"])
-            initialize_app(cred)
+            try:
+                # Create proper credential dictionary
+                firebase_creds = {
+                    "type": "service_account",
+                    "project_id": st.secrets["firebase"]["project_id"],
+                    "private_key": st.secrets["firebase"]["private_key"].replace('\\n', '\n'),
+                    "client_email": st.secrets["firebase"]["client_email"],
+                    "client_id": st.secrets["firebase"]["client_id"],
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                    "client_x509_cert_url": st.secrets["firebase"]["client_x509_cert_url"]
+                }
+                
+                cred = credentials.Certificate(firebase_creds)
+                initialize_app(cred)
+            except Exception as e:
+                st.error(f"Firebase initialization error: {str(e)}")
+                st.error("Please check your .streamlit/secrets.toml configuration")
+                raise
             
         self.db = firestore.client()
     
