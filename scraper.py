@@ -55,60 +55,35 @@ class AutoScoutScraper:
         return None
 
     def extract_car_data(self, listing_element) -> Dict:
-        """
-        Estrae i dati di un'auto da un elemento HTML
-        
-        Args:
-            listing_element: Elemento BeautifulSoup dell'annuncio
-            
-        Returns:
-            Dizionario con i dati dell'auto
-        """
-        # Estrai titolo e prezzo
         title_elem = listing_element.select_one('[data-testid="title"]')
         price_elem = listing_element.select_one('[data-testid="price"]')
-        
-        # Estrai targa dal titolo o dalla descrizione
-        description = listing_element.select_one('[data-testid="description"]')
-        plate = self._extract_plate(title_elem.text if title_elem else '') if title_elem else None
-        if not plate and description:
-            plate = self._extract_plate(description.text)
-            
-        # Estrai URL e immagine
-        link_elem = listing_element.select_one('a[href*="/auto/"]')
         img_elem = listing_element.select_one('img[src*="/auto/"]')
+        link_elem = listing_element.select_one('a[href*="/auto/"]')
         
         return {
             'title': title_elem.text.strip() if title_elem else None,
             'price': self._extract_price(price_elem.text) if price_elem else None,
-            'plate': plate,
+            'plate': self._extract_plate(title_elem.text if title_elem else ''),
             'url': link_elem['href'] if link_elem else None,
             'image_url': img_elem['src'] if img_elem else None,
             'scrape_date': datetime.now()
         }
 
-    def _extract_plate(self, text: str) -> Optional[str]:
-        """
-        Estrae la targa dal testo usando pattern matching
+    def _extract_plate(self, text):
+        """Extract plate from text using regex"""
+        if not text:
+            return None
         
-        Args:
-            text: Testo da cui estrarre la targa
-            
-        Returns:
-            Targa se trovata, altrimenti None
-        """
-        # Pattern per targhe italiane (XX000XX, XX00000, etc.)
         patterns = [
-            r'[A-Z]{2}\s*\d{3}\s*[A-Z]{2}',  # Formato XX000XX
-            r'[A-Z]{2}\s*\d{5}',              # Formato XX00000
-            r'[A-Z]{2}\s*\d{4}\s*[A-Z]{1,2}'  # Altri formati comuni
+            r'[A-Z]{2}\s*\d{3}\s*[A-Z]{2}',  # Format XX000XX
+            r'[A-Z]{2}\s*\d{5}',              # Format XX00000
+            r'[A-Z]{2}\s*\d{4}\s*[A-Z]{1,2}'  # Other common formats
         ]
         
         text = text.upper()
         for pattern in patterns:
             match = re.search(pattern, text)
             if match:
-                # Rimuovi spazi e normalizza
                 return re.sub(r'\s+', '', match.group(0))
         return None
 

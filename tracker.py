@@ -107,7 +107,7 @@ class AutoTracker:
                         'version': version,
                         'price': price,
                         'dealer_id': dealer_id,
-                        'images': images,
+                        'image_url': images[0] if images else None,  # Salva solo la prima immagine
                         'url': url,
                         'mileage': details['mileage'],
                         'registration': details['registration'],
@@ -116,7 +116,6 @@ class AutoTracker:
                         'scrape_date': datetime.now(),
                         'active': True
                     }
-                    
                     listings.append(listing)
                     st.write(f"✓ Annuncio processato: {title}")
                     
@@ -133,24 +132,6 @@ class AutoTracker:
         except Exception as e:
             st.error(f"Errore imprevisto: {str(e)}")
             return []
-
-    def _extract_plate(self, text):
-        """Extract plate from text using regex"""
-        if not text:
-            return None
-        
-        patterns = [
-            r'[A-Z]{2}\s*\d{3}\s*[A-Z]{2}',  # Format XX000XX
-            r'[A-Z]{2}\s*\d{5}',              # Format XX00000
-            r'[A-Z]{2}\s*\d{4}\s*[A-Z]{1,2}'  # Other common formats
-        ]
-        
-        text = text.upper()
-        for pattern in patterns:
-            match = re.search(pattern, text)
-            if match:
-                return re.sub(r'\s+', '', match.group(0))
-        return None
 
     def save_listings(self, listings):
         """Save listings to Firebase with batch write"""
