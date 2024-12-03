@@ -17,6 +17,32 @@ class AutoTracker:
             initialize_app(cred)
         self.db = firestore.client()
 
+    def _extract_plate(self, text):
+        """
+        Extract plate from text using regex patterns for Italian license plates
+        
+        Args:
+            text: Text to extract plate from
+            
+        Returns:
+            Extracted plate or None if not found
+        """
+        if not text:
+            return None
+        
+        patterns = [
+            r'[A-Z]{2}\s*\d{3}\s*[A-Z]{2}',  # Format XX000XX
+            r'[A-Z]{2}\s*\d{5}',              # Format XX00000
+            r'[A-Z]{2}\s*\d{4}\s*[A-Z]{1,2}'  # Other common formats
+        ]
+        
+        text = text.upper()
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                return re.sub(r'\s+', '', match.group(0))
+        return None
+
     def scrape_dealer(self, dealer_url: str):
         """Scrape dealer page with detailed logging"""
         if not dealer_url:
