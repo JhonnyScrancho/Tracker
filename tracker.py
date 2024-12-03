@@ -13,7 +13,19 @@ class AutoTracker:
         try:
             firebase_admin.get_app()
         except ValueError:
-            cred = credentials.Certificate(st.secrets["firebase"])
+            # Create proper credential dictionary
+            cred_dict = {
+                "type": "service_account",
+                "project_id": st.secrets["firebase"]["project_id"],
+                "private_key": st.secrets["firebase"]["private_key"].replace('\\n', '\n'),  # Fix private key formatting
+                "client_email": st.secrets["firebase"]["client_email"],
+                "client_id": st.secrets["firebase"]["client_id"],
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                "client_x509_cert_url": st.secrets["firebase"]["client_x509_cert_url"]
+            }
+            cred = credentials.Certificate(cred_dict)
             initialize_app(cred)
         self.db = firestore.client()
 
