@@ -28,22 +28,16 @@ class AutoTracker:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-            'Accept-Language': 'it-IT,it;q=0.9',
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache'
+            'Accept-Language': 'it-IT,it;q=0.9'
         }
         
         try:
-            # Fetch page
             st.write("Scaricando la pagina...")
             response = requests.get(dealer_url, headers=headers, timeout=30)
             response.raise_for_status()
             
-            # Parse HTML
-            st.write("Parsing della pagina HTML...")
             soup = BeautifulSoup(response.text, 'lxml')
             
-            # Show total results found
             total_results = soup.select_one(".dp-list__title__count")
             if total_results:
                 st.write(f"Totale annunci trovati: {total_results.text}")
@@ -51,28 +45,34 @@ class AutoTracker:
             listings = []
             dealer_id = dealer_url.split('/')[-1]
 
-            # Get all article elements
             articles = soup.select('article.dp-listing-item')
             st.write(f"Trovati {len(articles)} annunci da processare")
 
             for article in articles:
                 try:
-                    # Extract listing ID
                     listing_id = article.get('id')
                     st.write(f"Processando annuncio ID: {listing_id}")
 
-                    # Get title and model
+                    # Extract title, version and URL
                     title_elem = article.select_one('.dp-listing-item-title-wrapper h2')
                     version_elem = article.select_one('.dp-listing-item-title-wrapper .version')
                     title = title_elem.text.strip() if title_elem else "Titolo non disponibile"
                     version = version_elem.text.strip() if version_elem else ""
                     
-                    # Get URL
-                    url_elem = article.select_one('.dp-listing-item-title-wrapper')
+                    url_elem = article.select_one('.dp-listing-item-title-wrapper a')
                     url = url_elem['href'] if url_elem else None
                     if url:
                         url = f"https://www.autoscout24.it{url}"
-                    
+
+                    # Extract plate from URL or title
+                    plate = None
+                    if url:
+                        plate = self._extract_plate(url)
+                    if not plate and title:
+                        plate = self._extract_plate(title)
+                    if not plate:
+                        plate = listing_id  # Use listing ID as fallback
+
                     # Get price
                     price_elem = article.select_one('[data-testid="price-section"] .dp-listing-item__price')
                     price_text = price_elem.text.strip() if price_elem else ""
@@ -100,9 +100,9 @@ class AutoTracker:
                         elif any(fuel in text.lower() for fuel in ['benzina', 'diesel', 'elettrica', 'ibrida', 'gpl', 'metano']):
                             details['fuel'] = text
 
-                    # Create listing object                    
                     listing = {
                         'id': listing_id,
+                        'plate': plate,
                         'title': title,
                         'version': version,
                         'price': price,
@@ -133,6 +133,24 @@ class AutoTracker:
         except Exception as e:
             st.error(f"Errore imprevisto: {str(e)}")
             return []
+
+    def _extract_plate(self, text):
+        """Extract plate from text using regex"""
+        if not text:
+            return None
+        
+        patterns = [
+            r'[A-Z]{2}\s*\d{3}\s*[A-Z]{2}',  # Format XX000XX
+            r'[A-Z]{2}\s*\d{5}',              # Format XX00000
+            r'[A-Z]{2}\s*\d{4}\s*[A-Z]{1,2}'  # Other common formats
+        ]
+        
+        text = text.upper()
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                return re.sub(r'\s+', '', match.group(0))
+        return None
 
     def save_listings(self, listings):
         """Save listings to Firebase with batch write"""
