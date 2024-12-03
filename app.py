@@ -68,22 +68,8 @@ def main():
                             'In Offerta', 'Km', 'Immatricolazione', 'Carburante', 'Potenza'
                         ]
                         
-                        # Mostra tabella con stile
-                        st.dataframe(
-                            display_df,
-                            use_container_width=True,
-                            column_config={
-                                "In Offerta": st.column_config.BooleanColumn(
-                                    "🏷️ In Offerta",
-                                    help="Indica se l'auto è in offerta"
-                                ),
-                                "Km": st.column_config.NumberColumn(
-                                    "📏 Km",
-                                    help="Chilometraggio",
-                                    format="%d"
-                                )
-                            }
-                        )
+                        # Mostra tabella
+                        st.dataframe(display_df, use_container_width=True)
                         
                         # Dettagli annunci con immagini
                         st.subheader("🖼️ Dettaglio Annunci")
@@ -91,11 +77,12 @@ def main():
                         for idx, listing in enumerate(listings):
                             col = cols[idx % 3]
                             with col:
-                                st.image(
-                                    listing['image_urls'][0] if listing['image_urls'] else "https://via.placeholder.com/300x200",
-                                    caption=listing['title'],
-                                    use_column_width=True
-                                )
+                                if listing['image_urls']:
+                                    st.image(
+                                        listing['image_urls'][0],
+                                        caption=listing['title'],
+                                        use_column_width=True
+                                    )
                                 st.markdown(f"**Prezzo**: {format_price(listing['original_price'])}")
                                 if listing['has_discount']:
                                     st.markdown(f"**Prezzo Scontato**: {format_price(listing['discounted_price'])}")
