@@ -120,48 +120,49 @@ class AutoTracker:
 
                     # Estrazione immagini
                     images = []
-                    for source in article.select('picture.dp-new-gallery__picture source[srcset*="autoscout24.net"]'):
-                        img_url = source.get('srcset', '').split(' ')[0]  # Prendi il primo URL nel srcset
-                        if img_url:
-                            if not img_url.startswith('http'):
-                                img_url = f"https:{img_url}"
-                                
-                            # Estrai l'ID dell'immagine dal percorso
-                            img_parts = img_url.split('/')
-                            img_id = None
-                            listing_id = None
-                            for part in img_parts:
-                                if '.jpg' in part:
-                                    img_id = part.split('.')[0]
-                                if 'listing-images' in part:
-                                    listing_id = img_parts[img_parts.index(part) + 1]
-                                    
-                            if listing_id and img_id:
-                                # Ricostruisci l'URL completo dell'immagine
-                                base_url = f"https://prod.pictures.autoscout24.net/listing-images/{listing_id}_{img_id}.jpg"
-                                
-                                # Aggiungi alla lista se non è già presente
-                                if base_url not in images:
-                                    images.append(base_url)
-
-                    # Se non abbiamo trovato immagini, prova con il secondo metodo
+            
+                    # 1. Prima prova con le immagini già caricate
+                    gallery_items = article.select('.dp-new-gallery__picture source[srcset]')
+                    if gallery_items:
+                        for item in gallery_items:
+                            srcset = item.get('srcset', '')
+                            if srcset and 'autoscout24.net' in srcset:
+                                img_url = srcset.split(' ')[0]  # Prendi l'URL prima del descrittore
+                                base_img_url = (img_url.split('/250x188')[0]
+                                                    .split('.webp')[0]
+                                                    .replace('https:', 'https://prod.pictures.autoscout24.net'))
+                                if not base_img_url.endswith('.jpg'):
+                                    base_img_url += '.jpg'
+                                images.append(base_img_url)
+                    
+                    # 2. Se non trova immagini, ricostruisci gli URL basandoti sull'ID dell'annuncio
                     if not images:
-                        # Cerca gli URL delle immagini nei dati di testo
+                        # Estrai l'ID delle immagini dall'HTML
+                        img_pattern = fr'{listing_id}_([a-f0-9-]+)\.jpg'
+                        text = str(article)
+                        img_ids = re.findall(img_pattern, text)
+                        
+                        for img_id in img_ids:
+                            img_url = f"https://prod.pictures.autoscout24.net/listing-images/{listing_id}_{img_id}.jpg"
+                            images.append(img_url)
+                    
+                    # 3. Se ancora nessuna immagine trovata, cerca nel testo HTML completo
+                    if not images:
                         img_pattern = r'https://prod\.pictures\.autoscout24\.net/listing-images/[a-f0-9-]+_[a-f0-9-]+\.jpg'
                         text = str(article)
-                        found_images = re.findall(img_pattern, text)
-                        
-                        for img_url in found_images:
-                            # Rimuovi eventuali parametri di dimensione e webp
-                            clean_url = img_url.split('/250x188')[0].split('.webp')[0]
-                            if not clean_url.endswith('.jpg'):
-                                clean_url += '.jpg'
-                            if clean_url not in images:
-                                images.append(clean_url)
+                        found_urls = re.findall(img_pattern, text)
+                        for url in found_urls:
+                            base_url = url.split('/250x188')[0].split('.webp')[0]
+                            if not base_url.endswith('.jpg'):
+                                base_url += '.jpg'
+                            images.append(base_url)
 
-                    st.write(f"Debug: Trovate {len(images)} immagini per questo annuncio")
-                    for img in images:
-                        st.write(f"Debug: URL immagine: {img}")
+                    # Rimuovi duplicati
+                    images = list(dict.fromkeys(images))
+
+                    st.write(f"Debug: Trovate {len(images)} immagini per annuncio {listing_id}")
+                    
+                    listing['image_urls'] = images
 
                     # Estrazione prezzi
                     price_section = article.select_one('[data-testid="price-section"]')
