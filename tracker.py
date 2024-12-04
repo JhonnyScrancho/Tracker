@@ -118,28 +118,38 @@ class AutoTracker:
                     if not plate:
                         plate = listing_id
 
-                    # Estrazione immagini
+                    # Estrazione immagini - versione corretta
                     images = []
-                    gallery = article.select('.dp-gallery img, img.dp-new-gallery__img')
-                    for img in gallery:
-                        img_url = img.get('data-src') or img.get('src')
-                        if img_url:
-                            if not img_url.startswith('http'):
-                                img_url = f"https:{img_url}"
-                                
-                            # Rimuovi il suffisso di ridimensionamento e conversione webp
-                            if img_url.endswith('.webp'):
-                                img_url = img_url.rsplit('.webp', 1)[0]
-                            
-                            if '/250x188' in img_url:
-                                img_url = img_url.split('/250x188', 1)[0]
-                            
-                            # Assicurati che l'URL termini con .jpg
-                            if not img_url.endswith('.jpg'):
-                                img_url = f"{img_url}.jpg"
+                    # Usiamo un selettore più completo che cattura tutte le varianti
+                    img_selectors = [
+                        'img.dp-new-gallery__img',  # Selettore per il nuovo formato
+                        '.dp-new-gallery__picture source',  # Selettore per i source tags
+                        'picture.dp-new-gallery__picture source'  # Backup selettore per picture tags
+                    ]
 
-                            images.append(img_url)
-                            st.write(f"Debug: URL immagine processato: {img_url}")
+                    for selector in img_selectors:
+                        gallery_images = article.select(selector)
+                        for img in gallery_images:
+                            img_url = img.get('data-srcset') or img.get('srcset') or img.get('src')
+                            if img_url:
+                                if not img_url.startswith('http'):
+                                    img_url = f"https:{img_url}"
+                                    
+                                # Pulizia URL immagine
+                                if 'webp' in img_url:
+                                    # Rimuovi il suffisso webp
+                                    img_url = img_url.split('.webp')[0]
+                                    
+                                # Rimuovi parametri dimensionali
+                                if '/250x188' in img_url:
+                                    img_url = img_url.split('/250x188')[0]
+                                    
+                                # Assicurati che termini con .jpg
+                                if not img_url.endswith('.jpg'):
+                                    img_url = f"{img_url}.jpg"
+                                    
+                                images.append(img_url)
+                                st.write(f"Debug: URL immagine processato: {img_url}")
 
                     # Estrazione prezzi
                     price_section = article.select_one('[data-testid="price-section"]')
