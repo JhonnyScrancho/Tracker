@@ -129,34 +129,51 @@ class AutoTracker:
                     if not plate:
                         plate = listing_id
 
-                    # ESTRAZIONE IMMAGINI
+                    # ESTRAZIONE IMMAGINI MIGLIORATA
                     images = []
-                    # Prima controlla se ci sono immagini caricate
-                    gallery = article.select('article picture source[srcset], .dp-listing-item-gallery__picture-wrapper picture source[srcset], img.dp-new-gallery__img[src], source[srcset*="autoscout24.net"]')
-                    st.write(f"Found {len(gallery)} gallery items")
-                    
-                    if gallery:
-                        for img in gallery:
-                            img_url = img.get('srcset', '').split(' ')[0] if img.get('srcset') else img.get('src')
-                            if img_url and 'autoscout24.net' in img_url:
-                                base_img_url = img_url.split('/250x188')[0].replace('.webp', '.jpg')
-                                if base_img_url not in images:
-                                    images.append(base_img_url)
-                                    st.write(f"Added image: {base_img_url}")
+                    # Cerca tutte le sorgenti di immagini nel gallery
+                    gallery_sources = article.select('picture.dp-new-gallery__picture source[srcset], img.dp-new-gallery__img[src]')
+                    st.write(f"Found {len(gallery_sources)} gallery sources")
 
-                    # Se non trova immagini, cerca gli URL delle immagini direttamente nell'HTML
+                    for source in gallery_sources:
+                        # Controlla sia srcset che src
+                        if source.get('srcset'):
+                            # Prende il primo URL dal srcset (di solito il più grande)
+                            img_url = source['srcset'].split(',')[0].split(' ')[0]
+                        else:
+                            img_url = source.get('src')
+                            
+                        if img_url and 'autoscout24.net' in img_url:
+                            # Estrai l'URL base rimuovendo le dimensioni e la conversione webp
+                            base_img_url = re.sub(r'/\d+x\d+\.(webp|jpg)', '', img_url)
+                            # Assicurati che l'URL finisca con .jpg
+                            if not base_img_url.endswith('.jpg'):
+                                base_img_url += '.jpg'
+                            
+                            if base_img_url not in images:
+                                images.append(base_img_url)
+                                st.write(f"Added image: {base_img_url}")
+
+                    # Se ancora non trova immagini, cerca nel HTML
                     if not images:
                         st.write("No images found in gallery, trying HTML search")
-                        img_pattern = r'https://prod\.pictures\.autoscout24\.net/listing-images/[a-f0-9-]+_[a-f0-9-]+\.jpg(?:/[^"\']*)?'
-                        matches = re.finditer(img_pattern, str(article))
+                        html_content = str(article)
+                        # Pattern migliorato per catturare sia URL webp che jpg
+                        img_pattern = r'https://prod\.pictures\.autoscout24\.net/listing-images/[a-f0-9-]+_[a-f0-9-]+\.(?:jpg|webp)(?:/[^"\'\s]*)?'
+                        matches = re.finditer(img_pattern, html_content)
+                        
                         for match in matches:
                             img_url = match.group(0)
-                            base_img_url = img_url.split('/250x188')[0].replace('.webp', '.jpg')
+                            # Normalizza l'URL dell'immagine
+                            base_img_url = re.sub(r'/\d+x\d+\.(webp|jpg)', '', img_url)
+                            if not base_img_url.endswith('.jpg'):
+                                base_img_url += '.jpg'
+                                
                             if base_img_url not in images:
                                 images.append(base_img_url)
                                 st.write(f"Added image from HTML: {base_img_url}")
 
-                    st.write(f"Debug: Found {len(images)} images for listing {listing_id}")
+                    st.write(f"Debug: Found {len(images)} total images for listing {listing_id}")
 
                     # ESTRAZIONE PREZZI MIGLIORATA
                     price_section = article.select_one('[data-testid="price-section"]')
