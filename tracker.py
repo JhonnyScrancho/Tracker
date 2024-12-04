@@ -2,12 +2,17 @@ from firebase_admin import credentials, initialize_app, firestore
 from bs4 import BeautifulSoup
 import requests
 from datetime import datetime
-from plate_detector import PlateDetector
 import streamlit as st
 import pandas as pd
 import firebase_admin
 import re
 import time
+
+try:
+    from plate_detector import PlateDetector
+except ImportError:
+    print("Warning: PlateDetector non disponibile. OCR targhe disabilitato.")
+    PlateDetector = None
 
 class AutoTracker:
     def __init__(self):
@@ -87,7 +92,7 @@ class AutoTracker:
             articles = soup.select('article.dp-listing-item')
             st.write(f"🚗 Trovati {len(articles)} annunci da processare")
 
-            plate_detector = PlateDetector()
+            plate_detector = PlateDetector() if PlateDetector is not None else None
 
             for idx, article in enumerate(articles, 1):
                 try:
@@ -126,14 +131,14 @@ class AutoTracker:
                     # Estrazione targa
                     plate = None
 
-                    # Prima prova a trovare la targa nelle immagini (più affidabile)
-                    images = []
-                    if url:
-                        images = self.get_listing_images(url)
-                        if images:
+                    # Prima prova a trovare la targa nelle immagini se il detector è disponibile
+                    if plate_detector and images:
+                        try:
                             ocr_plate = plate_detector.detect_plates_from_listing(images)
                             if ocr_plate:
                                 plate = ocr_plate
+                        except Exception as e:
+                            st.warning(f"⚠️ Errore OCR targa: {str(e)}")
 
                     # Se non trova la targa nelle immagini, prova con URL e titolo
                     if not plate:
@@ -142,7 +147,7 @@ class AutoTracker:
                         if not plate and full_title:
                             plate = self._extract_plate(full_title)
                         if not plate:
-                            plate = listing_id  # Usa l'ID come fallback finale    
+                            plate = listing_id  # Usa l'ID come fallback finale
                         
                     # ESTRAZIONE PREZZI MIGLIORATA
                     price_section = article.select_one('[data-testid="price-section"]')
