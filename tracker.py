@@ -284,12 +284,13 @@ class AutoTracker:
         for listing in listings:
             doc_ref = self.db.collection('listings').document(listing['id'])
             
-            # Normalizza i dati prima del salvataggio
+            # Normalizzazione completa dei dati prima del salvataggio
             normalized_listing = {
                 'id': listing['id'],
                 'active': True,
                 'dealer_id': listing['dealer_id'],
                 'title': listing.get('title', ''),
+                'url': listing.get('url', ''),  # Aggiunto campo url
                 'original_price': float(listing.get('original_price', 0)) if listing.get('original_price') else None,
                 'discounted_price': float(listing.get('discounted_price', 0)) if listing.get('discounted_price') else None,
                 'has_discount': bool(listing.get('has_discount', False)),
@@ -297,7 +298,10 @@ class AutoTracker:
                 'registration': listing.get('registration'),
                 'fuel': listing.get('fuel'),
                 'power': listing.get('power'),
+                'transmission': listing.get('transmission'),  # Aggiunto campo transmission
+                'consumption': listing.get('consumption'),    # Aggiunto campo consumption
                 'image_urls': listing.get('image_urls', []),
+                'plate': listing.get('plate'),               # Aggiunto campo plate
                 'last_seen': timestamp
             }
             
