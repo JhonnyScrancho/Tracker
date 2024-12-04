@@ -89,10 +89,7 @@ class AutoTracker:
             for idx, article in enumerate(articles, 1):
                 try:
                     st.write(f"📝 [{idx}/{len(articles)}] Processando annuncio...")
-
-                    # Creazione dizionario per l'annuncio
-                    listing = {}
-
+                    
                     # Identificazione annuncio
                     listing_id = article.get('id', '')
                     
@@ -108,9 +105,20 @@ class AutoTracker:
                         version = version_elem.text.strip() if version_elem else ""
                         full_title = f"{title} {version}".strip()
                     else:
-                        url = None
-                        full_title = "N/D"
-                        st.write("⚠️ URL non trovato per questo annuncio")
+                        # Prova con un selettore alternativo
+                        url_elem = article.select_one('.dp-listing-item-title-wrapper a')
+                        if url_elem and 'href' in url_elem.attrs:
+                            url = f"https://www.autoscout24.it{url_elem['href']}"
+                            title_elem = url_elem.select_one('h2')
+                            version_elem = url_elem.select_one('.version')
+                            
+                            title = title_elem.text.strip() if title_elem else "N/D"
+                            version = version_elem.text.strip() if version_elem else ""
+                            full_title = f"{title} {version}".strip()
+                        else:
+                            url = None
+                            full_title = "N/D"
+                            st.write("⚠️ URL non trovato per questo annuncio")
 
                     # Estrazione targa
                     plate = None
@@ -123,28 +131,32 @@ class AutoTracker:
 
                     # ESTRAZIONE IMMAGINI
                     images = []
-                    gallery_items = article.select('.dp-new-gallery__picture source[srcset], picture.dp-new-gallery__picture source')
-                    if gallery_items:
-                        for item in gallery_items:
-                            srcset = item.get('srcset', '')
-                            if srcset and 'autoscout24.net' in srcset:
-                                img_url = srcset.split(' ')[0]
-                                base_img_url = img_url.split('/250x188')[0].split('.webp')[0]
-                                if not base_img_url.endswith('.jpg'):
-                                    base_img_url += '.jpg'
-                                if base_img_url not in images:
-                                    images.append(base_img_url)
+                    # Prima controlla se ci sono immagini caricate
+                    gallery = article.select('article picture source[srcset], .dp-listing-item-gallery__picture-wrapper picture source[srcset], img.dp-new-gallery__img[src], source[srcset*="autoscout24.net"]')
+                    st.write(f"Found {len(gallery)} gallery items")
                     
-                    # Se non trova immagini con il primo metodo
-                    if not images:
-                        for img_elem in article.select('img'):
-                            img_url = img_elem.get('data-src') or img_elem.get('src')
+                    if gallery:
+                        for img in gallery:
+                            img_url = img.get('srcset', '').split(' ')[0] if img.get('srcset') else img.get('src')
                             if img_url and 'autoscout24.net' in img_url:
-                                base_img_url = img_url.split('/250x188')[0].split('.webp')[0]
-                                if not base_img_url.endswith('.jpg'):
-                                    base_img_url += '.jpg'
+                                base_img_url = img_url.split('/250x188')[0].replace('.webp', '.jpg')
                                 if base_img_url not in images:
                                     images.append(base_img_url)
+                                    st.write(f"Added image: {base_img_url}")
+
+                    # Se non trova immagini, cerca gli URL delle immagini direttamente nell'HTML
+                    if not images:
+                        st.write("No images found in gallery, trying HTML search")
+                        img_pattern = r'https://prod\.pictures\.autoscout24\.net/listing-images/[a-f0-9-]+_[a-f0-9-]+\.jpg(?:/[^"\']*)?'
+                        matches = re.finditer(img_pattern, str(article))
+                        for match in matches:
+                            img_url = match.group(0)
+                            base_img_url = img_url.split('/250x188')[0].replace('.webp', '.jpg')
+                            if base_img_url not in images:
+                                images.append(base_img_url)
+                                st.write(f"Added image from HTML: {base_img_url}")
+
+                    st.write(f"Debug: Found {len(images)} images for listing {listing_id}")
 
                     # Estrazione prezzi
                     price_section = article.select_one('[data-testid="price-section"]')
@@ -212,7 +224,7 @@ class AutoTracker:
                         elif 'l/100' in text or 'kwh/100' in text:
                             details['consumption'] = text
 
-                    # Costruzione dizionario finale
+                    # Creazione dizionario annuncio
                     listing = {
                         'id': listing_id,
                         'plate': plate,
@@ -235,7 +247,6 @@ class AutoTracker:
 
                     listings.append(listing)
                     st.write(f"✅ Annuncio processato: {full_title}")
-                    st.write(f"Debug: Trovate {len(images)} immagini per questo annuncio")
                     
                 except Exception as e:
                     st.error(f"❌ Errore nel parsing dell'annuncio: {str(e)}")
