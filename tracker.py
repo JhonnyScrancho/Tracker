@@ -135,98 +135,47 @@ class AutoTracker:
                     if url:
                         images = self.get_listing_images(url)
 
-                    # Estrazione targa con approccio sequenziale e multi-step
+                    # Estrazione targa con approccio sequenziale ottimizzato
                     plate = None
                     if images:  # Se abbiamo trovato delle immagini
-                        st.write("🔍 Analisi targhe nelle immagini...")
                         detector = PlateDetector()  # Inizializza il detector una sola volta
-                        detector.debug_mode = True  # Abilita modalità debug per feedback visivo
                         
-                        # Ordina le immagini dando priorità alle foto frontali (che spesso mostrano meglio la targa)
-                        prioritized_images = sorted(images, 
-                                                key=lambda x: 'front' in x.lower() or 'anter' in x.lower(), 
-                                                reverse=True)
-                        
-                        progress_container = st.empty()
-                        with progress_container.container():
-                            for idx, img_url in enumerate(prioritized_images):
+                        with st.spinner("🔍 Analisi targhe nelle immagini..."):
+                            for idx, img_url in enumerate(images):
                                 try:
-                                    st.write(f"📷 Analisi immagine {idx + 1}/{len(images)}...")
-                                    col1, col2 = st.columns(2)
-                                    
-                                    with col1:
-                                        st.image(img_url, caption=f"Immagine {idx + 1}", width=300)
-                                    
-                                    with col2:
-                                        plate = detector.detect_with_retry(img_url, max_retries=2)
-                                        if plate:
-                                            st.success(f"✅ Targa rilevata: {plate}")
-                                            break
-                                        else:
-                                            st.warning("⚠️ Nessuna targa trovata in questa immagine")
-                                    
-                                    st.divider()
-                                    
+                                    plate = detector.detect_with_retry(img_url)
+                                    if plate:
+                                        st.success(f"✅ Targa rilevata: {plate}")
+                                        break
                                 except Exception as e:
-                                    st.error(f"❌ Errore nell'analisi dell'immagine {idx + 1}: {str(e)}")
                                     continue
 
-                        # Nascondi il container di progresso dopo il completamento
-                        progress_container.empty()
+                        # Se OCR fallisce, prova estrazione da titolo/URL silenziosamente
+                        if not plate:
+                            if url:
+                                plate = self._extract_plate(url)
+                            if not plate and full_title:
+                                plate = self._extract_plate(full_title)
 
-                    # Se OCR fallisce, prova pattern matching su testo
-                    if not plate:
-                        st.write("🔍 Ricerca pattern targa in metadati...")
-                        patterns = [
-                            (url, "URL"),
-                            (full_title, "Titolo"),
-                            (listing_id, "ID Annuncio")
-                        ]
-                        
-                        for text, source in patterns:
-                            if text:
-                                detected_plate = detector._validate_plate(text)
-                                if detected_plate:
-                                    plate = detected_plate
-                                    st.success(f"✅ Targa trovata in {source}: {plate}")
-                                    break
+                        # Input manuale SOLO se necessario e senza troppi feedback
+                        if not plate:
+                            col1, col2 = st.columns([3, 1])
+                            with col1:
+                                manual_plate = st.text_input(
+                                    "Inserisci targa",
+                                    key=f"manual_plate_{listing_id}",
+                                    help="Formato: AA000BB"
+                                ).upper()
+                            with col2:
+                                if st.button("✅", key=f"confirm_plate_{listing_id}"):
+                                    if manual_plate:
+                                        plate = manual_plate
+                                    else:
+                                        st.error("Targa non valida")
 
-                    # Input manuale con validazione
-                    if not plate:
-                        st.warning("⚠️ Rilevamento automatico fallito", icon="⚠️")
-                        
-                        col1, col2 = st.columns([3, 1])
-                        with col1:
-                            manual_plate = st.text_input(
-                                "Inserisci targa manualmente",
-                                key=f"manual_plate_{listing_id}",
-                                help="Formato: AA000BB, AA00000, AA0000B",
-                                placeholder="ES: AA123BB"
-                            ).upper()
-                            
-                            # Validazione real-time
-                            if manual_plate:
-                                if detector._validate_plate(manual_plate):
-                                    st.success("✅ Formato targa valido")
-                                else:
-                                    st.error("❌ Formato targa non valido")
-                        
-                        with col2:
-                            validate_button = st.button("✅ Conferma", 
-                                                    key=f"confirm_plate_{listing_id}",
-                                                    disabled=not manual_plate)
-                            
-                            if validate_button:
-                                if validated_plate := detector._validate_plate(manual_plate):
-                                    plate = validated_plate
-                                    st.success(f"✅ Targa confermata: {plate}")
-                                else:
-                                    st.error("❌ Formato targa non valido")
-
-                    # Fallback finale
+                    # Fallback finale silenzioso
                     if not plate:
                         plate = listing_id
-                        st.info(f"ℹ️ Nessuna targa valida trovata, usando ID: {plate}")
 
                     # ESTRAZIONE PREZZI
                     price_section = article.select_one('[data-testid="price-section"]')
