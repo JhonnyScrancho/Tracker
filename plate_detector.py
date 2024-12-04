@@ -1,53 +1,28 @@
-from paddleocr import PaddleOCR
+from azure.cognitiveservices.vision.computervision import ComputerVisionClient
+from azure.cognitiveservices.vision.computervision.models import OperationStatusCodes
+from msrest.authentication import CognitiveServicesCredentials
 from PIL import Image
 import requests
 from io import BytesIO
 import re
-import numpy as np
-import cv2
 import streamlit as st
-from typing import Optional, List, Dict
-import time
+from typing import Optional, Dict
 from datetime import datetime
+import time
 
 class PlateDetector:
     def __init__(self):
-        """Inizializza il detector con PaddleOCR"""
+        """Inizializza il detector con Azure Computer Vision"""
         try:
-            self.ocr = PaddleOCR(
-                use_angle_cls=True,  # Rileva rotazione testo
-                lang='en',           # Modello inglese (più accurato per targhe)
-                show_log=False,      # Disabilita log
-                use_gpu=False        # CPU only su Streamlit
+            self.client = ComputerVisionClient(
+                endpoint=st.secrets["azure"]["endpoint"],
+                credentials=CognitiveServicesCredentials(st.secrets["azure"]["key"])
             )
             # Cache per ottimizzazione
             self.results_cache = {}
         except Exception as e:
-            st.error(f"Errore inizializzazione OCR: {str(e)}")
-            self.ocr = None
-
-    def _download_image(self, image_url: str) -> Optional[Image.Image]:
-        """Download immagine con gestione errori e cache"""
-        try:
-            # Check cache
-            if image_url in self.results_cache:
-                return self.results_cache[image_url]['image']
-                
-            response = requests.get(image_url, timeout=10)
-            response.raise_for_status()
-            
-            image = Image.open(BytesIO(response.content))
-            
-            # Cache result
-            self.results_cache[image_url] = {
-                'image': image, 
-                'timestamp': datetime.now()
-            }
-            
-            return image
-        except Exception as e:
-            st.warning(f"Errore nel download dell'immagine: {str(e)}")
-            return None
+            st.error(f"Errore inizializzazione Azure Vision: {str(e)}")
+            self.client = None
 
     def _validate_plate(self, text: str) -> Optional[str]:
         """Valida il formato targa italiana"""
@@ -72,7 +47,7 @@ class PlateDetector:
 
     def detect_plate_from_url(self, image_url: str, 
                             progress_bar: Optional[st.progress] = None) -> Optional[str]:
-        """Rileva targa usando PaddleOCR"""
+        """Rileva targa usando Azure Computer Vision"""
         try:
             # Check cache
             if image_url in self.results_cache:
@@ -83,48 +58,45 @@ class PlateDetector:
                         return cached['plate']
             
             if progress_bar:
-                progress_bar.progress(0.2, "Scaricando immagine...")
-                
-            # Download immagine
-            image = self._download_image(image_url)
-            if image is None:
-                return None
+                progress_bar.progress(0.2, "Analizzando immagine con Azure...")
 
-            if progress_bar:
-                progress_bar.progress(0.4, "Analizzando immagine...")
+            # Esegui OCR direttamente sull'URL
+            result = self.client.read(url=image_url, raw=True)
+            
+            # Get the operation location (URL with ID da monitorare)
+            operation_location = result.headers["Operation-Location"]
+            operation_id = operation_location.split("/")[-1]
 
-            # Converti in array numpy
-            np_image = np.array(image)
-            
-            # Esegui OCR
-            result = self.ocr.ocr(np_image, cls=True)
-            
-            if progress_bar:
-                progress_bar.progress(0.6, "Processando risultati...")
-            
+            # Attendi il completamento dell'analisi
+            while True:
+                get_text_result = self.client.get_read_result(operation_id)
+                if get_text_result.status not in ['notStarted', 'running']:
+                    break
+                if progress_bar:
+                    progress_bar.progress(0.5, "Elaborazione in corso...")
+                time.sleep(1)
+
             # Analizza risultati
-            if result:
-                texts = []
-                for line in result:
-                    for word_info in line:
-                        text = word_info[1][0]  # Estrai testo rilevato
-                        confidence = word_info[1][1]  # Confidence score
-                        
+            if get_text_result.status == OperationStatusCodes.succeeded:
+                if progress_bar:
+                    progress_bar.progress(0.8, "Analizzando risultati...")
+                    
+                for text_result in get_text_result.analyze_result.read_results:
+                    for line in text_result.lines:
                         # Valida solo se confidence alta
-                        if confidence > 0.7:
-                            texts.append(text)
-                
-                # Cerca targa nei testi trovati
-                for text in texts:
-                    if plate := self._validate_plate(text):
-                        # Cache risultato
-                        self.results_cache[image_url]['plate'] = plate
-                        self.results_cache[image_url]['timestamp'] = datetime.now()
-                        
-                        if progress_bar:
-                            progress_bar.progress(1.0, f"Targa trovata: {plate}")
-                        return plate
-            
+                        if line.appearance.confidence > 0.7:
+                            if plate := self._validate_plate(line.text):
+                                # Cache risultato
+                                self.results_cache[image_url] = {
+                                    'plate': plate,
+                                    'timestamp': datetime.now(),
+                                    'confidence': line.appearance.confidence
+                                }
+                                
+                                if progress_bar:
+                                    progress_bar.progress(1.0, f"Targa trovata: {plate}")
+                                return plate
+
             if progress_bar:
                 progress_bar.progress(1.0, "Nessuna targa trovata")
             return None
