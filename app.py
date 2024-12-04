@@ -10,7 +10,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Custom CSS per migliorare l'aspetto dell'interfaccia
+# Custom CSS migliorato
 st.markdown("""
     <style>
         .stExpander {
@@ -39,15 +39,29 @@ st.markdown("""
             margin: 10px 0;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
+        .price-section {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 10px 0;
+        }
         .price-tag {
             font-size: 1.5em;
             font-weight: bold;
             color: #4CAF50;
         }
         .discount-price {
-            color: #f44336;
+            font-size: 1.2em;
+            color: #666;
             text-decoration: line-through;
-            margin-right: 10px;
+        }
+        .discount-badge {
+            background-color: #f44336;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            font-weight: bold;
         }
         .car-details {
             display: grid;
@@ -153,35 +167,25 @@ def main():
                     df['prezzo'] = df['original_price'].apply(format_price)
                     df['prezzo_scontato'] = df['discounted_price'].apply(format_price)
                     
-                    # Aggiunta link cliccabile solo se la colonna url esiste
-                    if 'url' in df.columns:
-                        df['link'] = df['url'].apply(lambda x: f'<a href="{x}" target="_blank">🔗 Vedi</a>' if pd.notna(x) else '')
-                    else:
-                        df['link'] = ''
+                    # Aggiunta link cliccabile
+                    df['link'] = df['url'].apply(lambda x: f'<a href="{x}" target="_blank">🔗 Vedi</a>' if pd.notna(x) else '')
                     
-                    # Selezione colonne disponibili
-                    base_columns = ['title', 'prezzo', 'prezzo_scontato', 'mileage', 
-                                  'registration', 'fuel', 'link']
-                    available_columns = [col for col in base_columns if col in df.columns]
-                    
-                    display_df = df[available_columns].copy()
-                    
-                    # Mapping nomi colonne
-                    column_mapping = {
+                    # Selezione e rinomina colonne
+                    display_columns = {
                         'title': 'Modello',
                         'prezzo': 'Prezzo',
                         'prezzo_scontato': 'Prezzo Scontato',
+                        'discount_percentage': 'Sconto %',
                         'mileage': 'Km',
                         'registration': 'Immatricolazione',
                         'fuel': 'Carburante',
                         'link': 'Link'
                     }
                     
-                    # Applica mapping solo per le colonne disponibili
-                    display_df.columns = [column_mapping.get(col, col) for col in display_df.columns]
-                    
-                    # Debug info
-                    st.write("Colonne disponibili:", df.columns.tolist())
+                    # Filtra solo le colonne disponibili
+                    available_columns = [col for col in display_columns.keys() if col in df.columns]
+                    display_df = df[available_columns].copy()
+                    display_df.columns = [display_columns[col] for col in available_columns]
                     
                     # Visualizzazione tabella con link cliccabili
                     st.write(display_df.to_html(escape=False, index=False), unsafe_allow_html=True)
@@ -189,7 +193,6 @@ def main():
                 except Exception as e:
                     st.error(f"Errore nella creazione del DataFrame: {str(e)}")
                     st.write("Debug - Struttura dati listing:", listings[0].keys() if listings else "No listings")
-                    
                 
                 # Visualizzazione dettagliata stile AutoScout24
                 with st.expander("📸 Dettagli Annunci", expanded=False):
@@ -203,7 +206,6 @@ def main():
                         with cols[0]:
                             if listing.get('image_urls') and len(listing['image_urls']) > 0:
                                 try:
-                                    # Rimuovi il parametro class_ che non è supportato
                                     st.image(
                                         listing['image_urls'][0],
                                         use_column_width=True
@@ -217,19 +219,22 @@ def main():
                         with cols[1]:
                             st.markdown(f"### {listing['title']}")
                             
-                            # Prezzi
-                            price_html = f"""
-                                <div class="price-section">
-                                    <span class="price-tag">{format_price(listing['original_price'])}</span>
-                            """
+                            # Visualizzazione prezzi migliorata
+                            price_html = '<div class="price-section">'
+                            
                             if listing.get('has_discount') and listing.get('discounted_price'):
-                                discount = ((listing['original_price'] - listing['discounted_price']) / 
-                                         listing['original_price'] * 100)
-                                price_html += f"""
-                                    <span class="discount-price">{format_price(listing['discounted_price'])}</span>
-                                    <span class="discount-badge">-{discount:.1f}%</span>
-                                """
-                            price_html += "</div>"
+                                # Se c'è uno sconto, mostra prima il prezzo scontato e poi quello originale barrato
+                                price_html += f'''
+                                    <span class="price-tag">{format_price(listing['discounted_price'])}</span>
+                                    <span class="discount-price">{format_price(listing['original_price'])}</span>
+                                '''
+                                if listing.get('discount_percentage'):
+                                    price_html += f'<span class="discount-badge">-{listing["discount_percentage"]}%</span>'
+                            else:
+                                # Se non c'è sconto, mostra solo il prezzo originale
+                                price_html += f'<span class="price-tag">{format_price(listing["original_price"])}</span>'
+                            
+                            price_html += '</div>'
                             st.markdown(price_html, unsafe_allow_html=True)
                             
                             # Dettagli in due colonne

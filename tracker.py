@@ -158,29 +158,39 @@ class AutoTracker:
 
                     st.write(f"Debug: Found {len(images)} images for listing {listing_id}")
 
-                    # Estrazione prezzi
+                    # ESTRAZIONE PREZZI MIGLIORATA
                     price_section = article.select_one('[data-testid="price-section"]')
                     prices = {
                         'original_price': None,
                         'discounted_price': None,
-                        'has_discount': False
+                        'has_discount': False,
+                        'discount_percentage': None
                     }
-                    
+
                     if price_section:
-                        superdeal = price_section.select_one('.dp-listing-item__superdeal-container')
-                        if superdeal:
-                            original_price_elem = superdeal.select_one('.dp-listing-item__superdeal-strikethrough div')
-                            discounted_price_elem = superdeal.select_one('.dp-listing-item__superdeal-highlight-price-span')
-                            
-                            if original_price_elem:
-                                prices['original_price'] = self._extract_price(original_price_elem.text)
-                            if discounted_price_elem:
-                                prices['discounted_price'] = self._extract_price(discounted_price_elem.text)
+                        # Cerca prima eventuali sconti/superdeal
+                        discount_price = price_section.select_one('.discount-price, .dp-listing-item__superdeal-strikethrough div')
+                        if discount_price:
+                            prices['original_price'] = self._extract_price(discount_price.text)
                             prices['has_discount'] = True
+                            
+                            # Cerca il prezzo scontato
+                            current_price = price_section.select_one('.dp-listing-item__superdeal-highlight-price-span, .current-price')
+                            if current_price:
+                                prices['discounted_price'] = self._extract_price(current_price.text)
+                                
+                                # Calcola la percentuale di sconto
+                                if prices['original_price'] and prices['discounted_price']:
+                                    prices['discount_percentage'] = round(
+                                        ((prices['original_price'] - prices['discounted_price']) / 
+                                        prices['original_price'] * 100),
+                                        1
+                                    )
                         else:
-                            regular_price_elem = price_section.select_one('.dp-listing-item__price')
-                            if regular_price_elem:
-                                prices['original_price'] = self._extract_price(regular_price_elem.text)
+                            # Se non c'è sconto, cerca il prezzo normale
+                            regular_price = price_section.select_one('.dp-listing-item__price')
+                            if regular_price:
+                                prices['original_price'] = self._extract_price(regular_price.text)
 
                     # Estrazione dettagli veicolo
                     details = {
@@ -233,6 +243,7 @@ class AutoTracker:
                         'original_price': prices['original_price'],
                         'discounted_price': prices['discounted_price'],
                         'has_discount': prices['has_discount'],
+                        'discount_percentage': prices['discount_percentage'],
                         'dealer_id': dealer_id,
                         'image_urls': images,
                         'mileage': details['mileage'],
