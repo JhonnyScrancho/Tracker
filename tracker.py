@@ -62,6 +62,7 @@ class AutoTracker:
         return None
 
     def scrape_dealer(self, dealer_url: str):
+        """Scarica e analizza tutti gli annunci di un concessionario"""
         if not dealer_url:
             st.warning("Inserisci l'URL del concessionario")
             return []
@@ -89,18 +90,18 @@ class AutoTracker:
                 try:
                     st.write(f"📝 [{idx}/{len(articles)}] Processando annuncio...")
 
+                    # Identificazione annuncio
+                    listing_id = article.get('id', '')
+                    url_elem = article.select_one('.dp-listing-item-title-wrapper a')
+                    url = f"https://www.autoscout24.it{url_elem['href']}" if url_elem and 'href' in url_elem.attrs else None
+
                     # Titolo e versione
                     title_elem = article.select_one('.dp-listing-item-title-wrapper h2')
                     version_elem = article.select_one('.dp-listing-item-title-wrapper .version')
                     title = title_elem.text.strip() if title_elem else "N/D"
                     version = version_elem.text.strip() if version_elem else ""
-                    
-                    # URL annuncio e ID
-                    listing_id = article.get('id', '')
-                    url_elem = article.select_one('.dp-listing-item-title-wrapper a')
-                    url = f"https://www.autoscout24.it{url_elem['href']}" if url_elem and 'href' in url_elem.attrs else None
-                    
-                    # Estrazione targa
+
+                    # Estrazione targa dall'URL o titolo
                     plate = None
                     if url:
                         plate = self._extract_plate(url)
@@ -111,42 +112,15 @@ class AutoTracker:
 
                     # Immagini
                     images = []
-                    # Proviamo diversi selettori comuni in ordine di specificità
-                    image_selectors = [
-                        '[data-testid="gallery-image"]',  # Se usano data attributes
-                        '.dp-new-gallery__img',          # Se usano classi specifiche per la gallery
-                        'article img[data-src]',         # Qualsiasi img con data-src nell'article
-                        'article img[src*="/auto/"]',    # img con src contenente /auto/
-                        '.dp-listing-item__gallery img'  # Struttura generale della gallery
-                    ]
-
-                    for selector in image_selectors:
-                        img_elements = article.select(selector)
-                        if img_elements:
-                            st.write(f"Debug: Trovate immagini con selettore: {selector}")
-                            for img in img_elements:
-                                img_url = img.get('data-src') or img.get('src')
-                                if img_url:
-                                    if not img_url.startswith('http'):
-                                        img_url = f"https:{img_url}"
-                                    if img_url not in images:  # Evita duplicati
-                                        images.append(img_url)
-                            if images:  # Se abbiamo trovato immagini, usciamo dal loop
-                                break
-
-                    st.write(f"Debug: Trovate {len(images)} immagini per l'annuncio")
-
-                    # Se ancora non abbiamo trovato immagini, prova un approccio più aggressivo
-                    if not images:
-                        st.write("Debug: Tentativo di recupero immagini con approccio alternativo")
-                        # Cerca qualsiasi immagine che potrebbe essere correlata all'auto
-                        for img in article.find_all('img'):
-                            src = img.get('data-src') or img.get('src')
-                            if src and ('/auto/' in src or '/images/' in src):
-                                if not src.startswith('http'):
-                                    src = f"https:{src}"
-                                if src not in images:
-                                    images.append(src)
+                    img_elements = article.select('img.dp-new-gallery__img')
+                    for img in img_elements:
+                        img_url = img.get('data-src') or img.get('src')
+                        if img_url:
+                            if not img_url.startswith('http'):
+                                img_url = f"https:{img_url}"
+                            # Converti .webp in versione full size
+                            img_url = img_url.replace('/250x188.webp', '.jpg')
+                            images.append(img_url)
 
                     # Prezzi
                     price_section = article.select_one('[data-testid="price-section"]')
@@ -177,25 +151,36 @@ class AutoTracker:
                         'mileage': None,
                         'registration': None,
                         'power': None,
-                        'fuel': None
+                        'fuel': None,
+                        'transmission': None,
+                        'consumption': None
                     }
 
                     details_items = article.select('.dp-listing-item__detail-item')
                     for item in details_items:
                         text = item.text.strip()
-                        # Verifica se il testo contiene un numero seguito da "km"
+                        # Chilometraggio
                         if text.endswith('km'):
                             try:
                                 km_value = ''.join(c for c in text if c.isdigit())
                                 details['mileage'] = int(km_value)
                             except ValueError:
                                 st.write(f"⚠️ Non riesco a convertire il chilometraggio: {text}")
+                        # Immatricolazione
                         elif '/' in text and len(text) <= 8:
                             details['registration'] = text
+                        # Potenza
                         elif 'CV' in text or 'KW' in text:
                             details['power'] = text
+                        # Alimentazione
                         elif any(fuel in text.lower() for fuel in ['benzina', 'diesel', 'elettrica', 'ibrida', 'gpl', 'metano']):
                             details['fuel'] = text
+                        # Cambio
+                        elif any(trans in text.lower() for trans in ['manuale', 'automatico']):
+                            details['transmission'] = text
+                        # Consumi
+                        elif 'l/100' in text or 'kwh/100' in text:
+                            details['consumption'] = text
 
                     # Equipaggiamenti
                     equipment = []
@@ -219,10 +204,22 @@ class AutoTracker:
                         'registration': details['registration'],
                         'power': details['power'],
                         'fuel': details['fuel'],
+                        'transmission': details['transmission'],
+                        'consumption': details['consumption'],
                         'equipment': equipment,
                         'scrape_date': datetime.now(),
                         'active': True
                     }
+                    
+                    # Validazione immagini prima di aggiungere l'annuncio
+                    valid_images = []
+                    for img_url in images:
+                        if self.validate_image_url(img_url):
+                            valid_images.append(img_url)
+                        else:
+                            st.write(f"Debug: Immagine non valida scartata: {img_url}")
+                    
+                    listing['image_urls'] = valid_images
                     listings.append(listing)
                     st.write(f"✅ Annuncio processato: {title}")
                     
