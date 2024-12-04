@@ -226,6 +226,8 @@ class AutoTracker:
         batch = self.db.batch()
         timestamp = datetime.now()
         
+        print(f"Salvataggio di {len(listings)} annunci")
+        
         for listing in listings:
             doc_ref = self.db.collection('listings').document(listing['id'])
             
@@ -235,7 +237,7 @@ class AutoTracker:
                 'active': True,
                 'dealer_id': listing['dealer_id'],
                 'title': listing.get('title', ''),
-                'original_price': float(listing.get('original_price', 0)),
+                'original_price': float(listing.get('original_price', 0)) if listing.get('original_price') else None,
                 'discounted_price': float(listing.get('discounted_price', 0)) if listing.get('discounted_price') else None,
                 'has_discount': bool(listing.get('has_discount', False)),
                 'mileage': int(listing.get('mileage', 0)) if listing.get('mileage') else None,
@@ -246,12 +248,30 @@ class AutoTracker:
                 'last_seen': timestamp
             }
             
+            print(f"Debug - Normalized listing data: {normalized_listing}")
+            
             # Se è un nuovo annuncio, aggiungi data creazione
             doc = doc_ref.get()
             if not doc.exists:
                 normalized_listing['first_seen'] = timestamp
             
             batch.set(doc_ref, normalized_listing, merge=True)
+            
+            # Registra evento nello storico
+            history_ref = self.db.collection('history').document()
+            history_data = {
+                'listing_id': listing['id'],
+                'dealer_id': listing['dealer_id'],
+                'price': normalized_listing['original_price'],
+                'discounted_price': normalized_listing['discounted_price'],
+                'date': timestamp,
+                'event': 'update'
+            }
+            batch.set(history_ref, history_data)
+        
+        print("Esecuzione batch commit")
+        batch.commit()
+        print("Batch commit completato")
 
     def mark_inactive_listings(self, dealer_id: str, active_ids: list):
         listings_ref = self.db.collection('listings')
@@ -413,19 +433,28 @@ class AutoTracker:
             Lista di annunci attivi
         """
         try:
+            # Aggiungiamo log per debug
+            print(f"Recupero annunci per dealer {dealer_id}")
+            
             # Query per gli annunci attivi del dealer specifico
             listings_ref = self.db.collection('listings')
             query = listings_ref.where('dealer_id', '==', dealer_id).where('active', '==', True)
             
             # Esegui la query e converti i risultati in lista di dizionari
             listings = []
-            for doc in query.stream():
+            docs = query.stream()
+            
+            for doc in docs:
                 listing_data = doc.to_dict()
                 listing_data['id'] = doc.id  # Aggiungi l'ID del documento
                 listings.append(listing_data)
                 
+            print(f"Trovati {len(listings)} annunci attivi")
+            if listings:
+                print("Esempio struttura primo annuncio:", list(listings[0].keys()))
+                
             return listings
             
         except Exception as e:
-            st.error(f"❌ Errore nel recupero degli annunci: {str(e)}")
-            return []    
+            print(f"Errore nel recupero degli annunci: {str(e)}")
+            return []

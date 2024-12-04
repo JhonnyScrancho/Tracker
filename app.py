@@ -104,7 +104,17 @@ def main():
             # Mostra annunci attivi
             listings = tracker.get_active_listings(dealer['id'])
             if listings:
+                st.write(f"Debug: Trovati {len(listings)} annunci")
+                st.write("Debug: Struttura primo annuncio:", listings[0].keys())
+                
+                # Controlliamo se abbiamo tutti i campi necessari
                 df = pd.DataFrame(listings)
+                st.write("Debug: Colonne DataFrame:", df.columns.tolist())
+                
+                # Verifichiamo i valori dei prezzi
+                st.write("Debug: Sample prezzi originali:", df['original_price'].head())
+                st.write("Debug: Sample prezzi scontati:", df['discounted_price'].head())
+                
                 df['prezzo'] = df['original_price'].apply(format_price)
                 df['prezzo_scontato'] = df['discounted_price'].apply(format_price)
                 
@@ -117,6 +127,12 @@ def main():
                     'Modello', 'Prezzo', 'Prezzo Scontato', 'Km',
                     'Immatricolazione', 'Carburante'
                 ]
+                
+                st.write("Debug: Colonne finali:", display_df.columns.tolist())
+                st.dataframe(display_df, use_container_width=True)
+            else:
+                st.info("ℹ️ Nessun annuncio attivo")
+                st.write("Debug: get_active_listings ha restituito una lista vuota")
                 
                 st.dataframe(display_df, use_container_width=True)
                 
