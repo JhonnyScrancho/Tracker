@@ -20,4 +20,4 @@ pytesseract>=0.3.10
 Pillow>=10.0.0
 
 # Optional dependencies
-# opencv-python>=4.8.0  # Uncomment if plate detection with image processing is needed
+opencv-python>=4.8.0
