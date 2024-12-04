@@ -137,36 +137,19 @@ class AutoTracker:
 
                     # Estrazione targa semplificata con Azure
                     plate = None
-                    if images:  # Se abbiamo trovato delle immagini
-                        detector = PlateDetector()
-                        
+                    if images:
                         with st.spinner("🔍 Analisi targhe..."):
                             for img_url in images:
                                 try:
-                                    result = detector.client.read(url=img_url, raw=True)
-                                    operation_location = result.headers["Operation-Location"]
-                                    operation_id = operation_location.split("/")[-1]
-
-                                    # Attendi il risultato
-                                    while True:
-                                        get_text_result = detector.client.get_read_result(operation_id)
-                                        if get_text_result.status not in ['notStarted', 'running']:
-                                            break
-                                        time.sleep(1)
-
-                                    if get_text_result.status == OperationStatusCodes.succeeded:
-                                        for text_result in get_text_result.analyze_result.read_results:
-                                            for line in text_result.lines:
-                                                if plate := detector._validate_plate(line.text):
-                                                    break
-                                        if plate:
-                                            break
-                                except Exception:
+                                    if plate := detector.detect_with_retry(img_url):
+                                        break  # Interrompi appena trovi una targa valida
+                                except Exception as e:
+                                    st.warning(f"⚠️ Errore analisi immagine: {str(e)}")
                                     continue
-
-                        # Fallback su estrazione da testo
-                        if not plate:
-                            plate = self._extract_plate(url) or self._extract_plate(full_title) or listing_id
+                    
+                    # Fallback su estrazione da testo se non trovata nelle immagini
+                    if not plate:
+                        plate = self._extract_plate(url) or self._extract_plate(full_title) or listing_id
 
                     # ESTRAZIONE PREZZI
                     price_section = article.select_one('[data-testid="price-section"]')
