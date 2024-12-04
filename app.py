@@ -228,6 +228,7 @@ def main():
                     display_columns = {
                         'thumbnail': 'Foto',
                         'listing_id': 'ID Annuncio',
+                        'plate': 'Targa',
                         'title': 'Modello',
                         'prezzo': 'Prezzo',
                         'prezzo_scontato': 'Prezzo Scontato',

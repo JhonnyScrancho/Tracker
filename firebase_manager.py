@@ -46,27 +46,53 @@ class FirebaseManager:
             'removed_at': datetime.now()
         })
 
-    def save_listings(self, listings: list):
+    def save_listings(self, listings):
         """Salva o aggiorna gli annunci"""
         batch = self.db.batch()
+        timestamp = datetime.now()
+        
+        print(f"Salvataggio di {len(listings)} annunci")
+        
         for listing in listings:
             doc_ref = self.db.collection('listings').document(listing['id'])
-            listing['last_update'] = datetime.now()
+            
+            # Normalizzazione completa dei dati prima del salvataggio
+            normalized_listing = {
+                'id': listing['id'],
+                'active': True,
+                'dealer_id': listing['dealer_id'],
+                'title': listing.get('title', ''),
+                'url': listing.get('url', ''),
+                'plate': listing.get('plate', ''),  # Assicuriamoci che la targa venga salvata
+                'original_price': float(listing.get('original_price', 0)) if listing.get('original_price') else None,
+                'discounted_price': float(listing.get('discounted_price', 0)) if listing.get('discounted_price') else None,
+                'has_discount': bool(listing.get('has_discount', False)),
+                'mileage': int(listing.get('mileage', 0)) if listing.get('mileage') else None,
+                'registration': listing.get('registration'),
+                'fuel': listing.get('fuel'),
+                'power': listing.get('power'),
+                'transmission': listing.get('transmission'),
+                'consumption': listing.get('consumption'),
+                'image_urls': listing.get('image_urls', []),
+                'last_seen': timestamp
+            }
             
             # Se è un nuovo annuncio, aggiungi data creazione
-            if not doc_ref.get().exists:
-                listing['created_at'] = datetime.now()
+            doc = doc_ref.get()
+            if not doc.exists:
+                normalized_listing['first_seen'] = timestamp
             
-            batch.set(doc_ref, listing, merge=True)
+            batch.set(doc_ref, normalized_listing, merge=True)
             
-            # Registra evento nello storico
+            # Registra evento nello storico con la targa
             history_ref = self.db.collection('history').document()
             history_data = {
                 'listing_id': listing['id'],
                 'dealer_id': listing['dealer_id'],
-                'price': listing['original_price'],
-                'discounted_price': listing['discounted_price'],
-                'date': datetime.now(),
+                'plate': listing.get('plate', ''),  # Aggiungiamo la targa anche allo storico
+                'price': normalized_listing['original_price'],
+                'discounted_price': normalized_listing['discounted_price'],
+                'date': timestamp,
                 'event': 'update'
             }
             batch.set(history_ref, history_data)
