@@ -5,7 +5,7 @@ from datetime import datetime
 from utils import format_price, create_timeline_chart, create_price_history_chart
 
 st.set_page_config(
-    page_title="AutoScout24 Tracker",
+    page_title="Tracker",
     page_icon="🚗",
     layout="wide"
 )
@@ -124,7 +124,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 def main():
-    st.title("🚗 AutoScout24 Tracker")
+    st.title("🚗 Tracker")
     
     tracker = AutoTracker()
     
@@ -169,8 +169,10 @@ def main():
                             with st.spinner("⏳ Aggiornamento in corso..."):
                                 listings = tracker.scrape_dealer(dealer['url'])
                                 if listings:
+                                    # Assicurati che ogni annuncio abbia il dealer_id
                                     for listing in listings:
                                         listing['dealer_id'] = dealer['id']
+                                    
                                     tracker.save_listings(listings)
                                     tracker.mark_inactive_listings(dealer['id'], [l['id'] for l in listings])
                                     progress_placeholder.success("✅ Aggiornamento completato!")
@@ -186,6 +188,7 @@ def main():
                 if remove_button:
                     confirm = st.checkbox("Conferma rimozione", key=f"confirm_{dealer['id']}")
                     hard_delete = st.checkbox("Elimina permanentemente", key=f"hard_delete_{dealer['id']}")
+                    
                     if confirm:
                         tracker.remove_dealer(dealer['id'], hard_delete=hard_delete)
                         st.rerun()
@@ -221,7 +224,7 @@ def main():
                         lambda x: f'<a href="{x}" target="_blank">🔗 Vedi</a>' if pd.notna(x) else ''
                     )
                     
-                    # Selezione e rinomina colonne con nuovo ordine
+                    # Selezione e rinomina colonne
                     display_columns = {
                         'thumbnail': 'Foto',
                         'listing_id': 'ID Annuncio',
@@ -241,7 +244,7 @@ def main():
                     display_df = df[available_columns].copy()
                     display_df.columns = [display_columns[col] for col in available_columns]
                     
-                    # Visualizzazione tabella con elementi interattivi
+                    # Visualizzazione tabella
                     st.write(
                         display_df.to_html(
                             escape=False,
@@ -263,19 +266,25 @@ def main():
                             with cols[0]:
                                 if listing.get('image_urls') and len(listing['image_urls']) > 0:
                                     try:
-                                        st.image(
-                                            listing['image_urls'][0],
-                                            use_column_width=True
-                                        )
+                                        img = listing['image_urls'][0]
+                                        st.image(img, use_column_width=True)
+                                        # Bottone per espandere l'immagine
+                                        if st.button("🔍 Espandi", key=f"expand_{listing['id']}"):
+                                            with st.expander("Immagine Grande", expanded=True):
+                                                st.image(img, use_column_width=True)
+                                                # Mostra tutte le altre immagini se disponibili
+                                                if len(listing['image_urls']) > 1:
+                                                    st.write("Altre immagini:")
+                                                    for additional_img in listing['image_urls'][1:]:
+                                                        st.image(additional_img, use_column_width=True)
                                     except Exception as e:
                                         st.error(f"Errore nel caricamento dell'immagine: {str(e)}")
-                                        st.write(f"URL immagine problematico: {listing['image_urls'][0]}")
                                 else:
                                     st.write("Nessuna immagine disponibile")
                             
                             with cols[1]:
                                 st.markdown(f"### {listing['title']}")
-                                st.markdown(f"**ID Annuncio:** `{listing['id']}`")
+                                st.markdown(f"**ID:** `{listing['id']}`")
                                 
                                 # Visualizzazione prezzi migliorata
                                 price_html = '<div class="price-section">'
