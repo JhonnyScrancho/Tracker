@@ -129,15 +129,11 @@ class AutoTracker:
                     if not plate:
                         plate = listing_id
 
-                    # Estrazione immagini
-                    images = self.get_all_images(listing_id, article)
-                    if images:
-                        st.write(f"✅ Trovate {len(images)} immagini")
-                        for img in images:
-                            st.write(f"  - {img}")
-                    else:
-                        st.write("❌ Nessuna immagine trovata")
-
+                    # Recupera immagini dalla pagina dell'annuncio
+                    images = []
+                    if url:
+                        images = self.get_listing_images(url)
+                        
                     # ESTRAZIONE PREZZI MIGLIORATA
                     price_section = article.select_one('[data-testid="price-section"]')
                     prices = {
@@ -253,58 +249,49 @@ class AutoTracker:
             st.error(f"❌ Errore imprevisto: {str(e)}")
             return []
 
-    
-    def extract_image_ids(self, listing_id: str, article_html: str) -> list:
+    def get_listing_images(self, listing_url: str) -> list:
         """
-        Invece di cercare le immagini direttamente, estraiamo gli ID univoci 
-        e ricostruiamo gli URL
+        Recupera le immagini dalla pagina del singolo annuncio
+        
+        Args:
+            listing_url: URL completo dell'annuncio
+            
+        Returns:
+            Lista di URL delle immagini
         """
-        base_url = "https://prod.pictures.autoscout24.net/listing-images"
-        
-        # Estrai listing_id e image_id dal DOM
-        pattern = rf"{listing_id}_([a-f0-9-]+)\.jpg"
-        matches = re.finditer(pattern, article_html)
-        
-        urls = []
-        for match in matches:
-            image_id = match.group(1)
-            # Costruisci l'URL dell'immagine originale
-            image_url = f"{base_url}/{listing_id}_{image_id}.jpg"
-            urls.append(image_url)
-        
-        return urls
-
-    def get_all_images(self, listing_id: str, article) -> list:
-        """Funzione principale per l'estrazione immagini"""
         try:
-            # 1. Prendi tutto l'HTML dell'articolo
-            html_content = str(article)
+            st.write(f"📷 Recupero immagini da {listing_url}")
             
-            # 2. Estrai gli ID delle immagini e costruisci gli URL
-            image_urls = self.extract_image_ids(listing_id, html_content)
+            # Aggiungi delay per evitare di sovraccaricare il server
+            time.sleep(self.delay)
             
-            if not image_urls:
-                # Se non trova nulla, prova pattern alternativi
-                alt_patterns = [
-                    r"listing-images/([\w-]+)_[\w-]+\.jpg",
-                    r"images/([\w-]+)/[\w-]+\.jpg"
-                ]
-                
-                for pattern in alt_patterns:
-                    matches = re.finditer(pattern, html_content)
-                    for match in matches:
-                        if match.group(1) == listing_id:
-                            img_pattern = rf"{match.group(1)}_([\w-]+)\.jpg"
-                            img_matches = re.finditer(img_pattern, html_content)
-                            for img_match in img_matches:
-                                url = f"https://prod.pictures.autoscout24.net/listing-images/{listing_id}_{img_match.group(1)}.jpg"
-                                if url not in image_urls:
-                                    image_urls.append(url)
+            # Scarica la pagina
+            response = self.session.get(listing_url)
+            response.raise_for_status()
             
-            return list(set(image_urls))  # Rimuovi duplicati
+            # Parsing del contenuto
+            soup = BeautifulSoup(response.text, 'lxml')
+            
+            # Cerca nella gallery
+            images = []
+            gallery_slides = soup.select('.image-gallery-slides picture.ImageWithBadge_picture__XJG24 img')
+            
+            for img in gallery_slides:
+                if img.get('src'):
+                    img_url = img['src']
+                    # Normalizza URL rimuovendo dimensioni e webp
+                    base_url = re.sub(r'/\d+x\d+\.(webp|jpg)', '', img_url)
+                    if not base_url.endswith('.jpg'):
+                        base_url += '.jpg'
+                        
+                    if base_url not in images:
+                        images.append(base_url)
+                        st.write(f"✅ Trovata immagine: {base_url}")
+
+            return list(set(images))  # Rimuovi duplicati
             
         except Exception as e:
-            st.write(f"⚠️ Errore nell'estrazione: {str(e)}")
+            st.write(f"❌ Errore nel recupero immagini: {str(e)}")
             return []
     
     def _extract_price(self, text):
