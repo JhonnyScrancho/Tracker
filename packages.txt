@@ -1,10 +1,7 @@
-# OCR Core Engines
 tesseract-ocr
 libtesseract-dev
 libzbar0
-poppler-utils
-
-# Image Processing
-python3-opencv
-python3-pil
-libgl1-mesa-glx
+ffmpeg
+libsm6
+libxext6
+libgl1
