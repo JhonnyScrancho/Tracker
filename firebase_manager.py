@@ -5,134 +5,168 @@ import streamlit as st
 class FirebaseManager:
     def __init__(self):
         """Inizializza la connessione a Firebase"""
-        cred = credentials.Certificate({
-            "type": "service_account",
-            "project_id": st.secrets["firebase"]["project_id"],
-            "private_key": st.secrets["firebase"]["private_key"],
-            "client_email": st.secrets["firebase"]["client_email"],
-        })
-        initialize_app(cred)
-        self.db = firestore.client()
+        try:
+            cred = credentials.Certificate({
+                "type": "service_account",
+                "project_id": st.secrets["firebase"]["project_id"],
+                "private_key": st.secrets["firebase"]["private_key"].replace('\\n', '\n'),
+                "client_email": st.secrets["firebase"]["client_email"],
+                "client_id": st.secrets["firebase"]["client_id"],
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                "client_x509_cert_url": st.secrets["firebase"]["client_x509_cert_url"]
+            })
+            initialize_app(cred)
+            self.db = firestore.client()
+        except Exception as e:
+            st.error(f"Errore connessione Firebase: {str(e)}")
+            raise
 
-    def save_dealer(self, dealer_id: str, name: str, url: str):
+    def save_dealer(self, dealer_id: str, url: str):
         """Salva o aggiorna i dati del concessionario"""
-        dealer_ref = self.db.collection('dealers').document(dealer_id)
-        dealer_ref.set({
-            'name': name,
+        self.db.collection('dealers').document(dealer_id).set({
             'url': url,
+            'active': True,
             'last_update': datetime.now(),
-            'active': True
+            'created_at': datetime.now()
         }, merge=True)
 
-    def save_car(self, car_data: dict):
-        """Salva o aggiorna i dati di un'auto"""
-        # Usa la targa come ID del documento
-        car_ref = self.db.collection('cars').document(car_data['plate'])
-        
-        # Aggiungi timestamp
-        car_data['last_update'] = datetime.now()
-        
-        # Se è un nuovo inserimento
-        if not car_ref.get().exists:
-            car_data['first_seen'] = datetime.now()
-        
-        car_ref.set(car_data, merge=True)
-
-    def save_history(self, plate: str, dealer_id: str, status: str):
-        """Registra un evento nella storia dell'auto"""
-        self.db.collection('history').add({
-            'plate': plate,
-            'dealer_id': dealer_id,
-            'status': status,  # 'listed' o 'removed'
-            'timestamp': datetime.now()
-        })
-
-    def get_dealer_cars(self, dealer_id: str):
-        """Recupera tutte le auto di un concessionario"""
-        cars = self.db.collection('cars')\
-            .where('dealer_id', '==', dealer_id)\
+    def get_dealers(self):
+        """Recupera tutti i concessionari attivi"""
+        dealers = self.db.collection('dealers')\
             .where('active', '==', True)\
             .stream()
-        return [car.to_dict() for car in cars]
+        return [dealer.to_dict() | {'id': dealer.id} for dealer in dealers]
 
-    def get_car_history(self, plate: str):
-        """Recupera la storia di un'auto"""
-        history = self.db.collection('history')\
-            .where('plate', '==', plate)\
-            .order_by('timestamp')\
-            .stream()
-        return [event.to_dict() for event in history]
-
-    def get_dealer_stats(self, dealer_id: str):
-        """Calcola le statistiche di un concessionario"""
-        # Auto attualmente in vendita
-        active_cars = self.db.collection('cars')\
-            .where('dealer_id', '==', dealer_id)\
-            .where('active', '==', True)\
-            .stream()
-        
-        # Storia delle riapparizioni
-        history = self.db.collection('history')\
-            .where('dealer_id', '==', dealer_id)\
-            .stream()
-        
-        # Organizzo i dati per la targa
-        plates_history = {}
-        for event in history:
-            event_data = event.to_dict()
-            plate = event_data['plate']
-            if plate not in plates_history:
-                plates_history[plate] = []
-            plates_history[plate].append(event_data)
-
-        # Calcolo statistiche
-        stats = {
-            'active_cars': len(list(active_cars)),
-            'total_plates': len(plates_history),
-            'reappeared_plates': len([p for p in plates_history.values() if len(p) > 2]),
-            'history': plates_history
-        }
-        
-        return stats
-
-    def mark_car_inactive(self, plate: str):
-        """Marca un'auto come non più in vendita"""
-        car_ref = self.db.collection('cars').document(plate)
-        car_ref.update({
+    def remove_dealer(self, dealer_id: str):
+        """Rimuove un concessionario"""
+        self.db.collection('dealers').document(dealer_id).update({
             'active': False,
-            'removal_date': datetime.now()
+            'removed_at': datetime.now()
         })
-        
-        # Registra nella storia
-        self.save_history(plate, car_ref.get().to_dict()['dealer_id'], 'removed')
 
-    def get_suspicious_patterns(self, dealer_id: str, threshold_days: int = 30):
-        """Identifica pattern sospetti di riapparizione"""
-        history = self.db.collection('history')\
+    def save_listings(self, listings: list):
+        """Salva o aggiorna gli annunci"""
+        batch = self.db.batch()
+        for listing in listings:
+            doc_ref = self.db.collection('listings').document(listing['id'])
+            listing['last_update'] = datetime.now()
+            
+            # Se è un nuovo annuncio, aggiungi data creazione
+            if not doc_ref.get().exists:
+                listing['created_at'] = datetime.now()
+            
+            batch.set(doc_ref, listing, merge=True)
+            
+            # Registra evento nello storico
+            history_ref = self.db.collection('history').document()
+            history_data = {
+                'listing_id': listing['id'],
+                'dealer_id': listing['dealer_id'],
+                'price': listing['original_price'],
+                'discounted_price': listing['discounted_price'],
+                'date': datetime.now(),
+                'event': 'update'
+            }
+            batch.set(history_ref, history_data)
+        
+        batch.commit()
+
+    def get_active_listings(self, dealer_id: str):
+        """Recupera gli annunci attivi di un concessionario"""
+        listings = self.db.collection('listings')\
             .where('dealer_id', '==', dealer_id)\
-            .order_by('timestamp')\
+            .where('active', '==', True)\
+            .stream()
+        return [listing.to_dict() for listing in listings]
+
+    def mark_inactive_listings(self, dealer_id: str, active_ids: list):
+        """Marca come inattivi gli annunci non più presenti"""
+        batch = self.db.batch()
+        
+        # Recupera annunci attivi non più presenti
+        old_listings = self.db.collection('listings')\
+            .where('dealer_id', '==', dealer_id)\
+            .where('active', '==', True)\
             .stream()
         
-        patterns = []
-        current_plate = None
-        last_timestamp = None
-        
-        for event in history:
-            event_data = event.to_dict()
-            
-            if current_plate != event_data['plate']:
-                current_plate = event_data['plate']
-                last_timestamp = event_data['timestamp']
-                continue
-                
-            days_difference = (event_data['timestamp'] - last_timestamp).days
-            if days_difference < threshold_days:
-                patterns.append({
-                    'plate': current_plate,
-                    'reappearance_interval': days_difference,
-                    'last_seen': event_data['timestamp']
+        for listing in old_listings:
+            if listing.id not in active_ids:
+                # Marca annuncio come inattivo
+                batch.update(listing.reference, {
+                    'active': False,
+                    'removed_at': datetime.now()
                 })
                 
-            last_timestamp = event_data['timestamp']
+                # Registra rimozione nello storico
+                history_ref = self.db.collection('history').document()
+                history_data = {
+                    'listing_id': listing.id,
+                    'dealer_id': dealer_id,
+                    'date': datetime.now(),
+                    'event': 'removed'
+                }
+                batch.set(history_ref, history_data)
+        
+        batch.commit()
+
+    def get_dealer_stats(self, dealer_id: str):
+        """Calcola statistiche per un concessionario"""
+        stats = {
+            'total_active': 0,
+            'avg_listing_duration': 0,
+            'total_discount_count': 0,
+            'avg_discount_percentage': 0
+        }
+        
+        # Conta annunci attivi
+        active_listings = self.db.collection('listings')\
+            .where('dealer_id', '==', dealer_id)\
+            .where('active', '==', True)\
+            .stream()
+        
+        listings_list = list(active_listings)
+        stats['total_active'] = len(listings_list)
+        
+        # Calcola statistiche sconti
+        total_discount = 0
+        discount_count = 0
+        
+        for listing in listings_list:
+            data = listing.to_dict()
+            if data.get('discounted_price') and data.get('original_price'):
+                discount = ((data['original_price'] - data['discounted_price']) / 
+                          data['original_price'] * 100)
+                total_discount += discount
+                discount_count += 1
+        
+        stats['total_discount_count'] = discount_count
+        if discount_count > 0:
+            stats['avg_discount_percentage'] = total_discount / discount_count
+        
+        # Calcola durata media annunci
+        if stats['total_active'] > 0:
+            total_duration = 0
+            count = 0
             
-        return patterns
+            for listing in listings_list:
+                data = listing.to_dict()
+                if data.get('created_at'):
+                    duration = (datetime.now() - data['created_at']).days
+                    total_duration += duration
+                    count += 1
+            
+            if count > 0:
+                stats['avg_listing_duration'] = total_duration / count
+        
+        return stats
+    
+    def get_dealer_history(self, dealer_id: str):
+        """Recupera lo storico completo di un dealer"""
+        history = self.db.collection('history')\
+            .where('dealer_id', '==', dealer_id)\
+            .order_by('date')\
+            .stream()
+        
+        return [event.to_dict() for event in history]

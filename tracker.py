@@ -6,6 +6,7 @@ import streamlit as st
 import pandas as pd
 import firebase_admin
 import re
+import time
 
 class AutoTracker:
     def __init__(self):
@@ -26,6 +27,22 @@ class AutoTracker:
             cred = credentials.Certificate(cred_dict)
             initialize_app(cred)
         self.db = firestore.client()
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept-Language': 'it-IT,it;q=0.9',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+        })
+        self.last_request = 0
+        self.delay = 3
+
+    def _wait_rate_limit(self):
+        """Implementa rate limiting tra le richieste"""
+        now = time.time()
+        time_passed = now - self.last_request
+        if time_passed < self.delay:
+            time.sleep(self.delay - time_passed)
+        self.last_request = time.time()
 
     def _extract_plate(self, text):
         if not text:
@@ -51,15 +68,9 @@ class AutoTracker:
 
         st.info("🔍 Inizio scraping della pagina...")
         
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-            'Accept-Language': 'it-IT,it;q=0.9'
-        }
-        
         try:
             st.write("📥 Scaricando la pagina...")
-            response = requests.get(dealer_url, headers=headers, timeout=30)
+            response = requests.get(dealer_url, headers=self.session.headers, timeout=30)
             response.raise_for_status()
             
             soup = BeautifulSoup(response.text, 'lxml')
@@ -76,16 +87,16 @@ class AutoTracker:
 
             for idx, article in enumerate(articles, 1):
                 try:
-                    listing_id = article.get('id')
-                    st.write(f"📝 [{idx}/{len(articles)}] Processando annuncio ID: {listing_id}")
+                    st.write(f"📝 [{idx}/{len(articles)}] Processando annuncio...")
 
                     # Titolo e versione
                     title_elem = article.select_one('.dp-listing-item-title-wrapper h2')
                     version_elem = article.select_one('.dp-listing-item-title-wrapper .version')
-                    title = title_elem.text.strip() if title_elem else "Titolo non disponibile"
+                    title = title_elem.text.strip() if title_elem else "N/D"
                     version = version_elem.text.strip() if version_elem else ""
                     
-                    # URL annuncio
+                    # URL annuncio e ID
+                    listing_id = article.get('id', '')
                     url_elem = article.select_one('.dp-listing-item-title-wrapper a')
                     url = f"https://www.autoscout24.it{url_elem['href']}" if url_elem and 'href' in url_elem.attrs else None
                     
@@ -100,15 +111,19 @@ class AutoTracker:
 
                     # Immagini
                     images = []
-                    img_elements = article.select('img[data-src]')  # Cerchiamo sia src che data-src
+                    img_elements = article.select('.dp-new-gallery__img')
                     for img in img_elements:
                         img_url = img.get('data-src') or img.get('src')
-                        if img_url and 'auto' in img_url:
+                        if img_url:
                             images.append(img_url)
 
                     # Prezzi
-                    prices = {'original_price': None, 'discounted_price': None, 'has_discount': False}
                     price_section = article.select_one('[data-testid="price-section"]')
+                    prices = {
+                        'original_price': None,
+                        'discounted_price': None,
+                        'has_discount': False
+                    }
                     
                     if price_section:
                         superdeal = price_section.select_one('.dp-listing-item__superdeal-container')
@@ -127,13 +142,22 @@ class AutoTracker:
                                 prices['original_price'] = self._extract_price(regular_price_elem.text)
 
                     # Dettagli veicolo
-                    details = {'mileage': None, 'registration': None, 'power': None, 'fuel': None}
-                    detail_items = article.select('.dp-listing-item__detail-item')
+                    details = {
+                        'mileage': None,
+                        'registration': None,
+                        'power': None,
+                        'fuel': None
+                    }
                     
-                    for item in detail_items:
+                    for item in article.select('.dp-listing-item__detail-item'):
                         text = item.text.strip()
-                        if 'km' in text:
-                            details['mileage'] = self._extract_number(text)
+                        if 'km' in text.lower():
+                            try:
+                                km_text = text.replace('km', '').strip()
+                                km_text = km_text.replace('.', '')
+                                details['mileage'] = int(km_text)
+                            except ValueError:
+                                st.write(f"⚠️ Non riesco a convertire il chilometraggio: {text}")
                         elif '/' in text and len(text) <= 8:
                             details['registration'] = text
                         elif 'CV' in text or 'KW' in text:
@@ -141,6 +165,13 @@ class AutoTracker:
                         elif any(fuel in text.lower() for fuel in ['benzina', 'diesel', 'elettrica', 'ibrida', 'gpl', 'metano']):
                             details['fuel'] = text
 
+                    # Equipaggiamenti
+                    equipment = []
+                    equip_list = article.select('.dp-listing-item__equipment-list li')
+                    for item in equip_list:
+                        equipment.append(item.text.strip())
+
+                    # Creazione dizionario annuncio
                     listing = {
                         'id': listing_id,
                         'plate': plate,
@@ -156,6 +187,7 @@ class AutoTracker:
                         'registration': details['registration'],
                         'power': details['power'],
                         'fuel': details['fuel'],
+                        'equipment': equipment,
                         'scrape_date': datetime.now(),
                         'active': True
                     }
@@ -176,6 +208,18 @@ class AutoTracker:
             st.error(f"❌ Errore imprevisto: {str(e)}")
             return []
 
+    def _extract_price(self, text):
+        if not text:
+            return None
+            
+        text = text.replace('€', '').replace('.', '').replace(',', '.')
+        text = re.sub(r'[^\d.]', '', text)
+        
+        try:
+            return float(text)
+        except ValueError:
+            return None
+
     def save_listings(self, listings):
         batch = self.db.batch()
         timestamp = datetime.now()
@@ -183,9 +227,17 @@ class AutoTracker:
         for listing in listings:
             doc_ref = self.db.collection('listings').document(listing['id'])
             
+            # Aggiungi timestamp ultimo aggiornamento
             listing['last_seen'] = timestamp
+            
+            # Controlla se è un nuovo inserimento
+            doc = doc_ref.get()
+            if not doc.exists:
+                listing['first_seen'] = timestamp
+            
             batch.set(doc_ref, listing, merge=True)
             
+            # Registra evento nello storico
             history_ref = self.db.collection('history').document()
             history_data = {
                 'listing_id': listing['id'],
@@ -194,7 +246,7 @@ class AutoTracker:
                 'discounted_price': listing['discounted_price'],
                 'has_discount': listing['has_discount'],
                 'date': timestamp,
-                'event': 'listed'
+                'event': 'update' if doc.exists else 'new'
             }
             batch.set(history_ref, history_data)
 
@@ -228,58 +280,46 @@ class AutoTracker:
     def get_dealer_stats(self, dealer_id: str):
         stats = {
             'total_active': 0,
-            'reappeared_plates': 0,
             'avg_listing_duration': 0,
             'total_discount_count': 0,
             'avg_discount_percentage': 0
         }
         
         try:
+            # Recupera annunci attivi
             active_listings = self.db.collection('listings')\
                 .where('dealer_id', '==', dealer_id)\
                 .where('active', '==', True)\
                 .stream()
             
-            active_listings_list = list(active_listings)
-            stats['total_active'] = len(active_listings_list)
+            listings_list = list(active_listings)
+            stats['total_active'] = len(listings_list)
             
             # Calcolo statistiche sconti
             discount_count = 0
             total_discount_percentage = 0
             
-            for listing in active_listings_list:
+            for listing in listings_list:
                 data = listing.to_dict()
                 if data.get('has_discount') and data.get('original_price') and data.get('discounted_price'):
                     discount_count += 1
-                    discount_percentage = ((data['original_price'] - data['discounted_price']) / data['original_price']) * 100
+                    discount_percentage = ((data['original_price'] - data['discounted_price']) / 
+                                        data['original_price'] * 100)
                     total_discount_percentage += discount_percentage
             
             stats['total_discount_count'] = discount_count
             if discount_count > 0:
                 stats['avg_discount_percentage'] = total_discount_percentage / discount_count
             
-            history = self.db.collection('history')\
-                .where('dealer_id', '==', dealer_id)\
-                .stream()
-            
-            listings_history = {}
-            for event in history:
-                event_data = event.to_dict()
-                listing_id = event_data['listing_id']
-                if listing_id not in listings_history:
-                    listings_history[listing_id] = []
-                listings_history[listing_id].append(event_data)
-            
-            stats['reappeared_plates'] = len([l for l in listings_history.values() if len(l) > 1])
-            
+            # Calcolo durata media annunci
             if stats['total_active'] > 0:
                 total_duration = 0
                 count = 0
-                for listing_events in listings_history.values():
-                    if len(listing_events) > 1:
-                        first = min(e['date'] for e in listing_events)
-                        last = max(e['date'] for e in listing_events)
-                        duration = (last - first).days
+                
+                for listing in listings_list:
+                    data = listing.to_dict()
+                    if data.get('first_seen'):
+                        duration = (datetime.now() - data['first_seen']).days
                         total_duration += duration
                         count += 1
                 
@@ -291,24 +331,37 @@ class AutoTracker:
         
         return stats
 
-    def _extract_price(self, text):
-        if not text:
-            return None
-            
-        text = text.replace('€', '').replace('.', '').replace(',', '.')
-        text = re.sub(r'[^\d.]', '', text)
-        
+    def get_listing_history(self, dealer_id: str):
+        """Recupera lo storico degli annunci di un dealer"""
         try:
-            return float(text)
-        except ValueError:
-            return None
-            
-    def _extract_number(self, text):
-        if not text:
-            return None
-            
-        number = re.sub(r'[^\d]', '', text)
-        try:
-            return int(number)
-        except ValueError:
-            return None
+            history = self.db.collection('history')\
+                .where('dealer_id', '==', dealer_id)\
+                .order_by('date')\
+                .stream()
+            return [event.to_dict() for event in history]
+        except Exception as e:
+            st.error(f"❌ Errore nel recupero dello storico: {str(e)}")
+            return []
+
+    def save_dealer(self, dealer_id: str, url: str):
+        """Salva un nuovo concessionario"""
+        self.db.collection('dealers').document(dealer_id).set({
+            'url': url,
+            'active': True,
+            'created_at': datetime.now(),
+            'last_update': datetime.now()
+        }, merge=True)
+
+    def get_dealers(self):
+        """Recupera tutti i concessionari attivi"""
+        dealers = self.db.collection('dealers')\
+            .where('active', '==', True)\
+            .stream()
+        return [dealer.to_dict() | {'id': dealer.id} for dealer in dealers]
+
+    def remove_dealer(self, dealer_id: str):
+        """Rimuove un concessionario"""
+        self.db.collection('dealers').document(dealer_id).update({
+            'active': False,
+            'removed_at': datetime.now()
+        })
