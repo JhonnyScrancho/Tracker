@@ -72,27 +72,32 @@ def main():
             if dealer.get('last_update'):
                 st.caption(f"Ultimo aggiornamento: {dealer['last_update'].strftime('%d/%m/%Y %H:%M')}")
 
-            col1, col2 = st.columns([6,1])
+            col1, col2, col3 = st.columns([5,1,1])
             with col1:
                 if st.button("🔄 Aggiorna", key=f"update_{dealer['id']}"):
-                    st.markdown('<div class="log-container">', unsafe_allow_html=True)
-                    with st.status("⏳ Aggiornamento in corso...", expanded=True) as status:
-                        try:
-                            listings = tracker.scrape_dealer(dealer['url'])
-                            if listings:
-                                tracker.save_listings(listings)
-                                tracker.mark_inactive_listings(dealer['id'], [l['id'] for l in listings])
-                                status.update(label="✅ Aggiornamento completato!", state="complete")
-                            else:
-                                status.update(label="⚠️ Nessun annuncio trovato", state="error")
-                        except Exception as e:
-                            status.update(label=f"❌ Errore: {str(e)}", state="error")
-                    st.markdown('</div>', unsafe_allow_html=True)
+                    with st.expander("📝 Log Aggiornamento", expanded=False):
+                        with st.status("⏳ Aggiornamento in corso...", expanded=True) as status:
+                            try:
+                                listings = tracker.scrape_dealer(dealer['url'])
+                                if listings:
+                                    tracker.save_listings(listings)
+                                    tracker.mark_inactive_listings(dealer['id'], [l['id'] for l in listings])
+                                    status.update(label="✅ Aggiornamento completato!", state="complete")
+                                else:
+                                    status.update(label="⚠️ Nessun annuncio trovato", state="error")
+                            except Exception as e:
+                                status.update(label=f"❌ Errore: {str(e)}", state="error")
             
             with col2:
-                if st.button("❌ Rimuovi", key=f"remove_{dealer['id']}"):
-                    if st.checkbox("Conferma rimozione?", key=f"confirm_{dealer['id']}"):
-                        tracker.remove_dealer(dealer['id'])
+                remove_button = st.button("❌ Rimuovi", key=f"remove_{dealer['id']}")
+            
+            with col3:
+                if remove_button:
+                    confirm = st.checkbox("Conferma rimozione", key=f"confirm_{dealer['id']}")
+                    hard_delete = st.checkbox("Elimina permanentemente", key=f"hard_delete_{dealer['id']}")
+                    
+                    if confirm:
+                        tracker.remove_dealer(dealer['id'], hard_delete=hard_delete)
                         st.rerun()
             
             # Mostra annunci attivi
@@ -115,7 +120,7 @@ def main():
                 st.dataframe(display_df, use_container_width=True)
                 
                 # Visualizzazione dettagliata annunci con immagini
-                if st.checkbox("📸 Mostra Dettagli e Immagini", key=f"show_details_{dealer['id']}"):
+                with st.expander("📸 Mostra Dettagli e Immagini", expanded=False):
                     cols = st.columns(3)
                     for idx, listing in enumerate(listings):
                         col = cols[idx % 3]

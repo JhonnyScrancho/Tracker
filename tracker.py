@@ -360,12 +360,47 @@ class AutoTracker:
             .stream()
         return [dealer.to_dict() | {'id': dealer.id} for dealer in dealers]
 
-    def remove_dealer(self, dealer_id: str):
-        """Rimuove un concessionario"""
-        self.db.collection('dealers').document(dealer_id).update({
-            'active': False,
-            'removed_at': datetime.now()
-        })
+    def remove_dealer(self, dealer_id: str, hard_delete: bool = False):
+        """
+        Rimuove un concessionario
+        
+        Args:
+            dealer_id: ID del concessionario
+            hard_delete: Se True, elimina completamente i dati dal database
+        """
+        if not hard_delete:
+            # Soft delete esistente
+            self.db.collection('dealers').document(dealer_id).update({
+                'active': False,
+                'removed_at': datetime.now()
+            })
+            return
+            
+        # Hard delete
+        batch = self.db.batch()
+        
+        # 1. Elimina il dealer
+        dealer_ref = self.db.collection('dealers').document(dealer_id)
+        batch.delete(dealer_ref)
+        
+        # 2. Elimina tutti gli annunci associati
+        listings = self.db.collection('listings')\
+            .where('dealer_id', '==', dealer_id)\
+            .stream()
+        
+        for listing in listings:
+            batch.delete(listing.reference)
+        
+        # 3. Elimina tutti i record storici
+        history = self.db.collection('history')\
+            .where('dealer_id', '==', dealer_id)\
+            .stream()
+        
+        for record in history:
+            batch.delete(record.reference)
+        
+        # Esegue tutte le operazioni in una singola transazione
+        batch.commit()
 
     def get_active_listings(self, dealer_id: str):
         """
