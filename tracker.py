@@ -2,6 +2,7 @@ from firebase_admin import credentials, initialize_app, firestore
 from bs4 import BeautifulSoup
 import requests
 from datetime import datetime
+from plate_detector import PlateDetector
 import streamlit as st
 import pandas as pd
 import firebase_admin
@@ -86,6 +87,8 @@ class AutoTracker:
             articles = soup.select('article.dp-listing-item')
             st.write(f"🚗 Trovati {len(articles)} annunci da processare")
 
+            plate_detector = PlateDetector()
+
             for idx, article in enumerate(articles, 1):
                 try:
                     st.write(f"📝 [{idx}/{len(articles)}] Processando annuncio...")
@@ -122,17 +125,24 @@ class AutoTracker:
 
                     # Estrazione targa
                     plate = None
-                    if url:
-                        plate = self._extract_plate(url)
-                    if not plate and full_title:
-                        plate = self._extract_plate(full_title)
-                    if not plate:
-                        plate = listing_id
 
-                    # Recupera immagini dalla pagina dell'annuncio
+                    # Prima prova a trovare la targa nelle immagini (più affidabile)
                     images = []
                     if url:
                         images = self.get_listing_images(url)
+                        if images:
+                            ocr_plate = plate_detector.detect_plates_from_listing(images)
+                            if ocr_plate:
+                                plate = ocr_plate
+
+                    # Se non trova la targa nelle immagini, prova con URL e titolo
+                    if not plate:
+                        if url:
+                            plate = self._extract_plate(url)
+                        if not plate and full_title:
+                            plate = self._extract_plate(full_title)
+                        if not plate:
+                            plate = listing_id  # Usa l'ID come fallback finale    
                         
                     # ESTRAZIONE PREZZI MIGLIORATA
                     price_section = article.select_one('[data-testid="price-section"]')
