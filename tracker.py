@@ -111,11 +111,42 @@ class AutoTracker:
 
                     # Immagini
                     images = []
-                    img_elements = article.select('.dp-new-gallery__img')
-                    for img in img_elements:
-                        img_url = img.get('data-src') or img.get('src')
-                        if img_url:
-                            images.append(img_url)
+                    # Proviamo diversi selettori comuni in ordine di specificità
+                    image_selectors = [
+                        '[data-testid="gallery-image"]',  # Se usano data attributes
+                        '.dp-new-gallery__img',          # Se usano classi specifiche per la gallery
+                        'article img[data-src]',         # Qualsiasi img con data-src nell'article
+                        'article img[src*="/auto/"]',    # img con src contenente /auto/
+                        '.dp-listing-item__gallery img'  # Struttura generale della gallery
+                    ]
+
+                    for selector in image_selectors:
+                        img_elements = article.select(selector)
+                        if img_elements:
+                            st.write(f"Debug: Trovate immagini con selettore: {selector}")
+                            for img in img_elements:
+                                img_url = img.get('data-src') or img.get('src')
+                                if img_url:
+                                    if not img_url.startswith('http'):
+                                        img_url = f"https:{img_url}"
+                                    if img_url not in images:  # Evita duplicati
+                                        images.append(img_url)
+                            if images:  # Se abbiamo trovato immagini, usciamo dal loop
+                                break
+
+                    st.write(f"Debug: Trovate {len(images)} immagini per l'annuncio")
+
+                    # Se ancora non abbiamo trovato immagini, prova un approccio più aggressivo
+                    if not images:
+                        st.write("Debug: Tentativo di recupero immagini con approccio alternativo")
+                        # Cerca qualsiasi immagine che potrebbe essere correlata all'auto
+                        for img in article.find_all('img'):
+                            src = img.get('data-src') or img.get('src')
+                            if src and ('/auto/' in src or '/images/' in src):
+                                if not src.startswith('http'):
+                                    src = f"https:{src}"
+                                if src not in images:
+                                    images.append(src)
 
                     # Prezzi
                     price_section = article.select_one('[data-testid="price-section"]')
@@ -422,6 +453,18 @@ class AutoTracker:
         # Esegue tutte le operazioni in una singola transazione
         batch.commit()
 
+    def get_listing_plate(self, listing_id: str):
+        """Recupera la targa di un annuncio specifico"""
+        try:
+            doc = self.db.collection('listings').document(listing_id).get()
+            if doc.exists:
+                data = doc.to_dict()
+                return data.get('plate')
+            return None
+        except Exception as e:
+            print(f"Errore nel recupero della targa: {str(e)}")
+            return None
+
     def get_active_listings(self, dealer_id: str):
         """
         Recupera gli annunci attivi di un concessionario
@@ -458,3 +501,12 @@ class AutoTracker:
         except Exception as e:
             print(f"Errore nel recupero degli annunci: {str(e)}")
             return []
+        
+    def validate_image_url(self, url: str) -> bool:
+        """Verifica che l'URL dell'immagine sia valido e accessibile"""
+        try:
+            response = requests.head(url, timeout=5)
+            return (response.status_code == 200 and 
+                   'image' in response.headers.get('content-type', ''))
+        except Exception:
+            return False    
