@@ -90,6 +90,9 @@ class AutoTracker:
                 try:
                     st.write(f"📝 [{idx}/{len(articles)}] Processando annuncio...")
 
+                    # Creazione dizionario per l'annuncio
+                    listing = {}
+
                     # Identificazione annuncio
                     listing_id = article.get('id', '')
                     
@@ -118,51 +121,30 @@ class AutoTracker:
                     if not plate:
                         plate = listing_id
 
-                    # Estrazione immagini
+                    # ESTRAZIONE IMMAGINI
                     images = []
-            
-                    # 1. Prima prova con le immagini già caricate
-                    gallery_items = article.select('.dp-new-gallery__picture source[srcset]')
+                    gallery_items = article.select('.dp-new-gallery__picture source[srcset], picture.dp-new-gallery__picture source')
                     if gallery_items:
                         for item in gallery_items:
                             srcset = item.get('srcset', '')
                             if srcset and 'autoscout24.net' in srcset:
-                                img_url = srcset.split(' ')[0]  # Prendi l'URL prima del descrittore
-                                base_img_url = (img_url.split('/250x188')[0]
-                                                    .split('.webp')[0]
-                                                    .replace('https:', 'https://prod.pictures.autoscout24.net'))
+                                img_url = srcset.split(' ')[0]
+                                base_img_url = img_url.split('/250x188')[0].split('.webp')[0]
                                 if not base_img_url.endswith('.jpg'):
                                     base_img_url += '.jpg'
-                                images.append(base_img_url)
+                                if base_img_url not in images:
+                                    images.append(base_img_url)
                     
-                    # 2. Se non trova immagini, ricostruisci gli URL basandoti sull'ID dell'annuncio
+                    # Se non trova immagini con il primo metodo
                     if not images:
-                        # Estrai l'ID delle immagini dall'HTML
-                        img_pattern = fr'{listing_id}_([a-f0-9-]+)\.jpg'
-                        text = str(article)
-                        img_ids = re.findall(img_pattern, text)
-                        
-                        for img_id in img_ids:
-                            img_url = f"https://prod.pictures.autoscout24.net/listing-images/{listing_id}_{img_id}.jpg"
-                            images.append(img_url)
-                    
-                    # 3. Se ancora nessuna immagine trovata, cerca nel testo HTML completo
-                    if not images:
-                        img_pattern = r'https://prod\.pictures\.autoscout24\.net/listing-images/[a-f0-9-]+_[a-f0-9-]+\.jpg'
-                        text = str(article)
-                        found_urls = re.findall(img_pattern, text)
-                        for url in found_urls:
-                            base_url = url.split('/250x188')[0].split('.webp')[0]
-                            if not base_url.endswith('.jpg'):
-                                base_url += '.jpg'
-                            images.append(base_url)
-
-                    # Rimuovi duplicati
-                    images = list(dict.fromkeys(images))
-
-                    st.write(f"Debug: Trovate {len(images)} immagini per annuncio {listing_id}")
-                    
-                    listing['image_urls'] = images
+                        for img_elem in article.select('img'):
+                            img_url = img_elem.get('data-src') or img_elem.get('src')
+                            if img_url and 'autoscout24.net' in img_url:
+                                base_img_url = img_url.split('/250x188')[0].split('.webp')[0]
+                                if not base_img_url.endswith('.jpg'):
+                                    base_img_url += '.jpg'
+                                if base_img_url not in images:
+                                    images.append(base_img_url)
 
                     # Estrazione prezzi
                     price_section = article.select_one('[data-testid="price-section"]')
@@ -230,13 +212,7 @@ class AutoTracker:
                         elif 'l/100' in text or 'kwh/100' in text:
                             details['consumption'] = text
 
-                    # Estrazione equipaggiamenti
-                    equipment = []
-                    equip_list = article.select('.dp-listing-item__equipment-list li')
-                    for item in equip_list:
-                        equipment.append(item.text.strip())
-
-                    # Creazione dizionario annuncio
+                    # Costruzione dizionario finale
                     listing = {
                         'id': listing_id,
                         'plate': plate,
@@ -253,27 +229,13 @@ class AutoTracker:
                         'fuel': details['fuel'],
                         'transmission': details['transmission'],
                         'consumption': details['consumption'],
-                        'equipment': equipment,
                         'scrape_date': datetime.now(),
                         'active': True
                     }
 
-                    # Validazione immagini migliorata
-                    valid_images = []
-                    for img_url in images:
-                        try:
-                            response = requests.head(img_url, timeout=5)
-                            if response.status_code == 200:
-                                valid_images.append(img_url)
-                            else:
-                                st.write(f"Debug: Immagine non accessibile: {img_url} (Status: {response.status_code})")
-                        except Exception as e:
-                            st.write(f"Debug: Errore validazione immagine {img_url}: {str(e)}")
-                            continue
-
-                    listing['image_urls'] = valid_images
                     listings.append(listing)
                     st.write(f"✅ Annuncio processato: {full_title}")
+                    st.write(f"Debug: Trovate {len(images)} immagini per questo annuncio")
                     
                 except Exception as e:
                     st.error(f"❌ Errore nel parsing dell'annuncio: {str(e)}")
