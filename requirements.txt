@@ -1,32 +1,16 @@
-# Core
 streamlit>=1.31.0
 firebase-admin>=6.4.0
 pandas>=2.1.4
 numpy>=1.24.0
+plotly>=5.18.0
 
 # Web scraping
 requests>=2.31.0
 beautifulsoup4>=4.12.3
 lxml>=5.1.0
 
-# Data visualization
-plotly>=5.18.0
-
 # OCR and Image Processing
 opencv-python-headless>=4.8.0
 Pillow>=10.0.0
 pytesseract>=0.3.10
-pyzbar>=0.1.9
 python-dateutil>=2.8.2
-
-# Utils
-python-dotenv>=1.0.0
-
-# Optional OCR enhancements
-textract>=1.6.5
-kraken>=2.0.8
-
-# Testing and Development
-pytest>=7.4.0
-black>=23.3.0
-flake8>=6.0.0

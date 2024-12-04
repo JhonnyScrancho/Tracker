@@ -3,17 +3,3 @@ libtesseract-dev
 libzbar0
 python3-opencv
 python3-pil
-python3-numpy
-poppler-utils
-build-essential
-python3-dev
-libpango1.0-dev
-pkg-config
-libcairo2-dev
-libjpeg-dev
-libgif-dev
-librsvg2-dev
-ffmpeg
-libsm6
-libxext6
-libgl1
