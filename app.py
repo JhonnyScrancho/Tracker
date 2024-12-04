@@ -41,50 +41,56 @@ def main():
             return
             
         st.header("🏢 Concessionari Monitorati")
+
+        # Custom CSS per il container del log
+        st.markdown("""
+            <style>
+                .stExpander {
+                    width: 100% !important;
+                }
+                .log-container {
+                    background-color: #f8f9fa;
+                    border: 1px solid #e9ecef;
+                    border-radius: 0.25rem;
+                    padding: 1rem;
+                    margin: 1rem 0;
+                    max-height: 400px;
+                    overflow-y: auto;
+                    width: 100% !important;
+                }
+                .element-container {
+                    width: 100% !important;
+                }
+                .stMarkdown {
+                    width: 100% !important;
+                }
+            </style>
+        """, unsafe_allow_html=True)
+
         for dealer in dealers:
-            with st.container():
-                col1, col2, col3 = st.columns([2,1,1])
-                with col1:
-                    st.subheader(dealer['url'])
-                    if dealer.get('last_update'):
-                        st.caption(f"Ultimo aggiornamento: {dealer['last_update'].strftime('%d/%m/%Y %H:%M')}")
-                with col2:
-                    if st.button("🔄 Aggiorna", key=f"update_{dealer['id']}"):
-                        # Creiamo un container scrollabile per i log
-                        log_container = st.container()
-                        with log_container:
-                            st.markdown("""
-                                <style>
-                                    .stProgress > div > div > div > div {
-                                        background-color: #1e4c7a;
-                                    }
-                                    .scraping-log {
-                                        height: 200px;
-                                        overflow-y: auto;
-                                        border: 1px solid #ddd;
-                                        padding: 10px;
-                                        margin: 10px 0;
-                                        background-color: #f8f9fa;
-                                    }
-                                </style>
-                            """, unsafe_allow_html=True)
-                            
-                            scrape_log = st.empty()
-                            with scrape_log.container():
-                                with st.spinner("⏳ Aggiornamento in corso..."):
-                                    try:
-                                        with st.expander("Log Scraping", expanded=True):
-                                            log_placeholder = st.empty()
-                                            listings = tracker.scrape_dealer(dealer['url'])
-                                            if listings:
-                                                tracker.save_listings(listings)
-                                                tracker.mark_inactive_listings(dealer['id'], [l['id'] for l in listings])
-                                                st.success(f"✅ Aggiornati {len(listings)} annunci")
-                                            else:
-                                                st.warning("⚠️ Nessun annuncio trovato")
-                                    except Exception as e:
-                                        st.error(f"❌ Errore: {str(e)}")
-            with col3:
+            st.subheader(dealer['url'])
+            if dealer.get('last_update'):
+                st.caption(f"Ultimo aggiornamento: {dealer['last_update'].strftime('%d/%m/%Y %H:%M')}")
+
+            col1, col2 = st.columns([6,1])
+            with col1:
+                if st.button("🔄 Aggiorna", key=f"update_{dealer['id']}"):
+                    st.markdown('<div class="log-container">', unsafe_allow_html=True)
+                    with st.status("⏳ Aggiornamento in corso..."):
+                        try:
+                            with st.expander("Log Scraping", expanded=True):
+                                listings = tracker.scrape_dealer(dealer['url'])
+                                if listings:
+                                    tracker.save_listings(listings)
+                                    tracker.mark_inactive_listings(dealer['id'], [l['id'] for l in listings])
+                                    st.success(f"✅ Aggiornati {len(listings)} annunci")
+                                else:
+                                    st.warning("⚠️ Nessun annuncio trovato")
+                        except Exception as e:
+                            st.error(f"❌ Errore: {str(e)}")
+                    st.markdown('</div>', unsafe_allow_html=True)
+            
+            with col2:
                 if st.button("❌ Rimuovi", key=f"remove_{dealer['id']}"):
                     if st.checkbox("Conferma rimozione?", key=f"confirm_{dealer['id']}"):
                         tracker.remove_dealer(dealer['id'])
