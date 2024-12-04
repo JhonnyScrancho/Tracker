@@ -112,15 +112,36 @@ class AutoTracker:
 
                     # Immagini
                     images = []
-                    img_elements = article.select('img.dp-new-gallery__img')
-                    for img in img_elements:
-                        img_url = img.get('data-src') or img.get('src')
-                        if img_url:
-                            if not img_url.startswith('http'):
-                                img_url = f"https:{img_url}"
-                            # Converti .webp in versione full size
-                            img_url = img_url.replace('/250x188.webp', '.jpg')
-                            images.append(img_url)
+                    gallery_container = article.select('.dp-listing-gallery')
+                    if gallery_container:
+                        img_elements = gallery_container[0].select('img.dp-new-gallery__img')
+                        for img in img_elements:
+                            # Get both data-src and src attributes
+                            img_url = img.get('data-src') or img.get('src')
+                            if img_url:
+                                # Convert relative to absolute URL if needed
+                                if not img_url.startswith('http'):
+                                    img_url = f"https:{img_url}"
+                                
+                                # Convert thumbnail URLs to full-size images
+                                # Replace both WebP and standard thumbnail formats
+                                img_url = img_url.replace('/250x188.webp', '_6.jpg')
+                                img_url = img_url.replace('/250x188', '_6.jpg')
+                                
+                                images.append(img_url)
+
+                    # Ensure we get all available images
+                    if not images:
+                        # Fallback to other possible gallery containers
+                        alt_gallery = article.select('.as24-carousel__item img')
+                        for img in alt_gallery:
+                            img_url = img.get('data-src') or img.get('src')
+                            if img_url:
+                                if not img_url.startswith('http'):
+                                    img_url = f"https:{img_url}"
+                                img_url = img_url.replace('/250x188.webp', '_6.jpg')
+                                img_url = img_url.replace('/250x188', '_6.jpg')
+                                images.append(img_url)
 
                     # Prezzi
                     price_section = article.select_one('[data-testid="price-section"]')
