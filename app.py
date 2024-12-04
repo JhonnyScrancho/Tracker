@@ -10,10 +10,9 @@ st.set_page_config(
     layout="wide"
 )
 
-# CSS migliorato con tema moderno e responsive
+# Custom CSS migliorato
 st.markdown("""
     <style>
-        /* Layout e container generali */
         .stExpander {
             width: 100% !important;
         }
@@ -36,167 +35,40 @@ st.markdown("""
         
         /* Stili tabella migliorati */
         .dataframe {
-            width: 100% !important;
-            border-collapse: separate !important;
-            border-spacing: 0 !important;
-            border: none !important;
-            margin: 1rem 0 !important;
-            background: white !important;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1) !important;
-            border-radius: 8px !important;
-            overflow: hidden !important;
+            width: 100%;
+            margin: 1rem 0;
         }
-        
         .dataframe th {
-            background-color: #f8f9fa !important;
-            padding: 12px 15px !important;
-            border: none !important;
-            font-weight: 600 !important;
-            color: #1f2937 !important;
-            font-size: 0.9rem !important;
-            text-align: left !important;
-            white-space: nowrap !important;
+            background-color: #f8f9fa;
+            padding: 12px 8px;
+            font-weight: 600;
+            text-align: left;
+            border-bottom: 2px solid #dee2e6;
         }
-        
         .dataframe td {
-            padding: 12px 15px !important;
-            border: none !important;
-            border-top: 1px solid #f0f0f0 !important;
-            color: #4b5563 !important;
-            font-size: 0.9rem !important;
-            vertical-align: middle !important;
+            padding: 8px;
+            vertical-align: middle;
+            border-bottom: 1px solid #eee;
         }
-        
         .dataframe tr:hover {
-            background-color: #f9fafb !important;
+            background-color: #f5f5f5;
         }
-        
-        /* Stili immagini e thumbnails */
-        .thumbnail-container {
-            position: relative;
-            display: inline-block;
-        }
-        
-        .thumbnail {
+        .table-img {
             width: 80px;
             height: 60px;
             object-fit: cover;
             border-radius: 4px;
-            cursor: pointer;
-            transition: all 0.2s ease-in-out;
-            border: 2px solid transparent;
         }
-        
-        .thumbnail:hover {
-            transform: scale(1.05);
-            border-color: #3b82f6;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        
-        .image-count-badge {
-            position: absolute;
-            top: -6px;
-            right: -6px;
-            background-color: #3b82f6;
-            color: white;
-            border-radius: 9999px;
-            padding: 2px 6px;
-            font-size: 0.7rem;
-            font-weight: 600;
-        }
-        
-        .expanded-image-modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0,0,0,0.8);
-            z-index: 1000;
-            justify-content: center;
-            align-items: center;
-            cursor: pointer;
-        }
-        
-        .expanded-image {
-            max-width: 90%;
-            max-height: 90vh;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        }
-        
-        /* Stili ID annuncio */
         .listing-id {
-            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-            color: #6b7280;
-            font-size: 0.85rem;
-            padding: 4px 8px;
+            font-family: monospace;
             background-color: #f3f4f6;
+            padding: 4px 6px;
             border-radius: 4px;
-            cursor: help;
-            transition: background-color 0.2s ease;
+            font-size: 0.9em;
+            color: #374151;
         }
         
-        .listing-id:hover {
-            background-color: #e5e7eb;
-            color: #4b5563;
-        }
-        
-        /* Badge e indicatori */
-        .price-badge {
-            display: inline-block;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-weight: 600;
-            font-size: 0.85rem;
-        }
-        
-        .original-price {
-            color: #059669;
-            background-color: #ecfdf5;
-        }
-        
-        .discounted-price {
-            color: #dc2626;
-            background-color: #fef2f2;
-            text-decoration: line-through;
-            margin-left: 8px;
-        }
-        
-        .discount-percent {
-            color: white;
-            background-color: #dc2626;
-            padding: 2px 6px;
-            border-radius: 9999px;
-            font-size: 0.75rem;
-            margin-left: 6px;
-        }
-        
-        /* Link e bottoni */
-        .action-link {
-            display: inline-flex;
-            align-items: center;
-            padding: 6px 12px;
-            background-color: #3b82f6;
-            color: white !important;
-            text-decoration: none !important;
-            border-radius: 6px;
-            font-size: 0.85rem;
-            font-weight: 500;
-            transition: all 0.2s ease;
-        }
-        
-        .action-link:hover {
-            background-color: #2563eb;
-            transform: translateY(-1px);
-        }
-        
-        .action-link svg {
-            margin-right: 4px;
-        }
-        
-        /* Stili car card */
+        /* Stili car card esistenti */
         .car-card {
             background-color: white;
             border-radius: 10px;
@@ -204,82 +76,51 @@ st.markdown("""
             margin: 10px 0;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
-        
+        .price-section {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 10px 0;
+        }
+        .price-tag {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #4CAF50;
+        }
+        .discount-price {
+            font-size: 1.2em;
+            color: #666;
+            text-decoration: line-through;
+        }
+        .discount-badge {
+            background-color: #f44336;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            font-weight: bold;
+        }
         .car-details {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 10px;
             margin: 10px 0;
         }
-        
+        .car-image {
+            border-radius: 5px;
+            width: 100%;
+            height: auto;
+        }
         .detail-item {
             display: flex;
             align-items: center;
             margin: 5px 0;
         }
-        
         .detail-label {
             font-weight: bold;
             margin-right: 5px;
         }
-        
-        /* Stili responsive */
-        @media (max-width: 768px) {
-            .dataframe {
-                display: block;
-                overflow-x: auto;
-                -webkit-overflow-scrolling: touch;
-            }
-            
-            .thumbnail {
-                width: 60px;
-                height: 45px;
-            }
-            
-            .car-details {
-                grid-template-columns: 1fr;
-            }
-        }
     </style>
-    
-    <script>
-        // Funzione per espandere l'immagine
-        function expandImage(imgUrl) {
-            const modal = document.createElement('div');
-            modal.className = 'expanded-image-modal';
-            modal.style.display = 'flex';
-            
-            const img = document.createElement('img');
-            img.src = imgUrl;
-            img.className = 'expanded-image';
-            
-            modal.onclick = () => document.body.removeChild(modal);
-            modal.appendChild(img);
-            document.body.appendChild(modal);
-        }
-        
-        // Inizializzazione tooltips
-        document.addEventListener('DOMContentLoaded', function() {
-            const tooltips = document.querySelectorAll('[data-tooltip]');
-            tooltips.forEach(element => {
-                element.addEventListener('mouseover', e => {
-                    const tooltip = document.createElement('div');
-                    tooltip.className = 'tooltip';
-                    tooltip.textContent = element.dataset.tooltip;
-                    document.body.appendChild(tooltip);
-                    
-                    const rect = element.getBoundingClientRect();
-                    tooltip.style.top = rect.bottom + 'px';
-                    tooltip.style.left = rect.left + 'px';
-                });
-                
-                element.addEventListener('mouseout', () => {
-                    const tooltip = document.querySelector('.tooltip');
-                    if (tooltip) tooltip.remove();
-                });
-            });
-        });
-    </script>
 """, unsafe_allow_html=True)
 
 def main():
@@ -313,12 +154,12 @@ def main():
             return
             
         st.header("🏢 Concessionari Monitorati")
-        
+
         for dealer in dealers:
             st.subheader(dealer['url'])
             if dealer.get('last_update'):
                 st.caption(f"Ultimo aggiornamento: {dealer['last_update'].strftime('%d/%m/%Y %H:%M')}")
-            
+
             col1, col2, col3 = st.columns([5,1,1])
             with col1:
                 if st.button("🔄 Aggiorna", key=f"update_{dealer['id']}"):
@@ -330,7 +171,6 @@ def main():
                                 if listings:
                                     for listing in listings:
                                         listing['dealer_id'] = dealer['id']
-                                    
                                     tracker.save_listings(listings)
                                     tracker.mark_inactive_listings(dealer['id'], [l['id'] for l in listings])
                                     progress_placeholder.success("✅ Aggiornamento completato!")
@@ -346,7 +186,6 @@ def main():
                 if remove_button:
                     confirm = st.checkbox("Conferma rimozione", key=f"confirm_{dealer['id']}")
                     hard_delete = st.checkbox("Elimina permanentemente", key=f"hard_delete_{dealer['id']}")
-                    
                     if confirm:
                         tracker.remove_dealer(dealer['id'], hard_delete=hard_delete)
                         st.rerun()
@@ -358,65 +197,28 @@ def main():
                 try:
                     df = pd.DataFrame(listings)
                     
-                    # Formattazione prezzi con badge di stile
-                    def format_price_with_style(row):
-                        original = format_price(row['original_price'])
-                        if pd.notna(row.get('discounted_price')):
-                            discounted = format_price(row['discounted_price'])
-                            discount = f"<span class='discount-percent'>-{row.get('discount_percentage', 0):.1f}%</span>"
-                            return f"""
-                                <span class='price-badge original-price'>{discounted}</span>
-                                <span class='price-badge discounted-price'>{original}</span>
-                                {discount}
-                            """
-                        return f"<span class='price-badge original-price'>{original}</span>"
+                    # Formattazione immagine
+                    df['thumbnail'] = df['image_urls'].apply(
+                        lambda x: f'<img src="{x[0]}" class="table-img" alt="Auto">' if x and len(x) > 0 else '❌'
+                    )
                     
-                    # Formattazione thumbnail con contatore immagini
-                    def format_thumbnail(row):
-                        if not row.get('image_urls'):
-                            return "No image"
-                        
-                        img_count = len(row['image_urls'])
-                        return f"""
-                            <div class='thumbnail-container'>
-                                <img src='{row['image_urls'][0]}' 
-                                     class='thumbnail' 
-                                     onclick='expandImage("{row['image_urls'][0]}")' 
-                                     alt='Miniatura'>
-                                <span class='image-count-badge'>{img_count}</span>
-                            </div>
-                        """
+                    # Formattazione ID annuncio
+                    df['listing_id'] = df['id'].apply(
+                        lambda x: f'<span class="listing-id">{x}</span>'
+                    )
                     
-                    # Formattazione ID con tooltip
-                    def format_id(id_value):
-                        return f"""
-                            <span class='listing-id' 
-                                  data-tooltip='ID Univoco Annuncio'>{id_value}</span>
-                        """
-                    
-                    # Formattazione link con stile
-                    def format_link(url):
-                        return f"""
-                            <a href='{url}' target='_blank' class='action-link'>
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" 
-                                     stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
-                                    <polyline points="15 3 21 3 21 9"></polyline>
-                                    <line x1="10" y1="14" x2="21" y2="3"></line>
-                                </svg>
-                                Vedi
-                            </a>
-                        """
-                    
-                    # Applicazione formattazioni
-                    df['prezzo'] = df.apply(format_price_with_style, axis=1)
-                    df['thumbnail'] = df.apply(format_thumbnail, axis=1)
-                    df['listing_id'] = df['id'].apply(format_id)
-                    df['link'] = df['url'].apply(format_link)
+                    # Formattazione prezzi
+                    df['prezzo'] = df['original_price'].apply(format_price)
+                    df['prezzo_scontato'] = df['discounted_price'].apply(format_price)
                     
                     # Formattazione chilometri
-                    df['mileage'] = df['mileage'].apply(
-                        lambda x: f"{x:,d} km".replace(",", ".") if pd.notna(x) else "N/D"
+                    df['km'] = df['mileage'].apply(
+                        lambda x: f"{x:,.0f} km".replace(",", ".") if pd.notna(x) else "N/D"
+                    )
+                    
+                    # Link
+                    df['link'] = df['url'].apply(
+                        lambda x: f'<a href="{x}" target="_blank">🔗 Vedi</a>' if pd.notna(x) else ''
                     )
                     
                     # Selezione e rinomina colonne con nuovo ordine
@@ -425,7 +227,9 @@ def main():
                         'listing_id': 'ID Annuncio',
                         'title': 'Modello',
                         'prezzo': 'Prezzo',
-                        'mileage': 'Km',
+                        'prezzo_scontato': 'Prezzo Scontato',
+                        'discount_percentage': 'Sconto %',
+                        'km': 'Chilometri',
                         'registration': 'Immatricolazione',
                         'fuel': 'Carburante',
                         'transmission': 'Cambio',
@@ -440,15 +244,14 @@ def main():
                     # Visualizzazione tabella con elementi interattivi
                     st.write(
                         display_df.to_html(
-                            escape=False, 
+                            escape=False,
                             index=False,
-                            classes=['display-table'],
-                            table_id='listings-table'
-                        ), 
+                            classes=['dataframe']
+                        ),
                         unsafe_allow_html=True
                     )
                     
-                    # Visualizzazione dettagliata stile cards
+                    # Visualizzazione dettagliata stile AutoScout24
                     with st.expander("📸 Dettagli Annunci", expanded=False):
                         for listing in listings:
                             st.markdown("""
@@ -466,6 +269,7 @@ def main():
                                         )
                                     except Exception as e:
                                         st.error(f"Errore nel caricamento dell'immagine: {str(e)}")
+                                        st.write(f"URL immagine problematico: {listing['image_urls'][0]}")
                                 else:
                                     st.write("Nessuna immagine disponibile")
                             
@@ -475,16 +279,17 @@ def main():
                                 
                                 # Visualizzazione prezzi migliorata
                                 price_html = '<div class="price-section">'
+                                
                                 if listing.get('has_discount') and listing.get('discounted_price'):
-                                    price_html += f"""
-                                        <span class="price-badge original-price">{format_price(listing['discounted_price'])}</span>
-                                        <span class="price-badge discounted-price">{format_price(listing['original_price'])}</span>
-                                        <span class="discount-percent">-{listing.get('discount_percentage', 0):.1f}%</span>
-                                    """
+                                    price_html += f'''
+                                        <span class="price-tag">{format_price(listing['discounted_price'])}</span>
+                                        <span class="discount-price">{format_price(listing['original_price'])}</span>
+                                    '''
+                                    if listing.get('discount_percentage'):
+                                        price_html += f'<span class="discount-badge">-{listing["discount_percentage"]}%</span>'
                                 else:
-                                    price_html += f"""
-                                        <span class="price-badge original-price">{format_price(listing['original_price'])}</span>
-                                    """
+                                    price_html += f'<span class="price-tag">{format_price(listing["original_price"])}</span>'
+                                
                                 price_html += '</div>'
                                 st.markdown(price_html, unsafe_allow_html=True)
                                 
@@ -507,18 +312,18 @@ def main():
                                     if listing.get('consumption'):
                                         st.markdown(f"**Consumi**: {listing['consumption']}")
                                 
-                                # Link all'annuncio con stile migliorato
+                                # Link all'annuncio
                                 if listing.get('url'):
                                     st.markdown(f"""
-                                        <a href="{listing['url']}" target="_blank" class="action-link">
+                                        <a href="{listing['url']}" target="_blank" 
+                                           style="display: inline-block; 
+                                                  padding: 8px 16px; 
+                                                  background-color: #4CAF50; 
+                                                  color: white; 
+                                                  text-decoration: none; 
+                                                  border-radius: 4px; 
+                                                  margin-top: 10px;">
                                             Vedi Annuncio Completo
-                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" 
-                                                 stroke="currentColor" stroke-width="2" stroke-linecap="round" 
-                                                 stroke-linejoin="round" style="margin-left: 4px;">
-                                                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
-                                                <polyline points="15 3 21 3 21 9"></polyline>
-                                                <line x1="10" y1="14" x2="21" y2="3"></line>
-                                            </svg>
                                         </a>
                                     """, unsafe_allow_html=True)
                             
@@ -550,7 +355,7 @@ def main():
                 st.subheader(dealer['url'])
                 stats = tracker.get_dealer_stats(dealer['id'])
                 
-                # Metriche principali con stile migliorato
+                # Metriche principali
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
                     st.metric("🚗 Annunci Attivi", stats['total_active'])
