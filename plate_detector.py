@@ -5,67 +5,82 @@ from io import BytesIO
 import re
 import cv2
 import numpy as np
-try:
-    from pyzbar.pyzbar import decode  # Per codici QR/barcodes
-    import textract  # OCR alternativo leggero
-    from kraken import pageseg  # OCR specializzato per testo
-except ImportError:
-    print("Librerie OCR opzionali non disponibili")
+import streamlit as st
+from typing import Optional, List
 
 class PlateDetector:
     def __init__(self):
-        """Inizializza il detector con multiple librerie OCR leggere"""
-        self.cv2 = None
+        """Initialize detector with multiple lightweight OCR libraries"""
         self.tesseract_config = '--oem 3 --psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
         
-        # Verifica disponibilità librerie
+        # Check library availability without crashing
+        self.cv2_available = self._check_cv2()
+        self.pyzbar_available = self._check_pyzbar()
+        self.textract_available = self._check_textract()
+        self.kraken_available = self._check_kraken()
+        
+    @staticmethod
+    def _check_cv2():
         try:
             import cv2
-            self.cv2 = cv2
+            return True
         except ImportError:
-            print("OpenCV not available")
+            st.warning("OpenCV not available - some preprocessing features will be limited")
+            return False
             
+    @staticmethod
+    def _check_pyzbar():
         try:
-            import pyzbar
-            self.has_pyzbar = True
+            from pyzbar.pyzbar import decode
+            return True
         except ImportError:
-            self.has_pyzbar = False
+            st.warning("pyzbar not available - QR/barcode detection disabled")
+            return False
             
+    @staticmethod
+    def _check_textract():
         try:
             import textract
-            self.has_textract = True
+            return True
         except ImportError:
-            self.has_textract = False
+            st.warning("textract not available - falling back to other OCR methods")
+            return False
             
+    @staticmethod
+    def _check_kraken():
         try:
             import kraken
-            self.has_kraken = True
+            return True
         except ImportError:
-            self.has_kraken = False
+            st.warning("kraken not available - falling back to other OCR methods")
+            return False
 
-    def preprocess_image(self, image):
-        """Preprocessa l'immagine per migliorare il riconoscimento"""
-        if self.cv2 is None:
+    def preprocess_image(self, image: np.ndarray) -> np.ndarray:
+        """Preprocess image with error handling"""
+        if not self.cv2_available:
             return image
             
         try:
-            # Conversione scala di grigi
-            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            # Grayscale conversion
+            if len(image.shape) == 3:
+                gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            else:
+                gray = image
             
-            # Ridimensiona se l'immagine è troppo grande
+            # Resize if too large
             height, width = gray.shape
             if width > 1000:
                 scale = 1000 / width
                 gray = cv2.resize(gray, None, fx=scale, fy=scale)
             
-            # Migliora contrasto
+            # Enhance contrast
             clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
             enhanced = clahe.apply(gray)
             
-            # Denoising
+            # Denoise
             denoised = cv2.fastNlMeansDenoising(enhanced)
             
-            # Binarizzazione adattiva
+            # Adaptive thresholding
             binary = cv2.adaptiveThreshold(
                 denoised, 255,
                 cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
@@ -74,136 +89,159 @@ class PlateDetector:
             
             return binary
         except Exception as e:
-            print(f"Errore preprocessing: {str(e)}")
+            st.warning(f"Image preprocessing failed: {str(e)}")
             return image
 
-    def _try_pyzbar(self, image):
-        """Tenta riconoscimento con pyzbar (per QR code o barcodes)"""
-        if not self.has_pyzbar:
+    def detect_plate_from_url(self, image_url: str, progress_bar: Optional[st.progress] = None) -> Optional[str]:
+        """Detect plate using multiple OCR methods with progress tracking"""
+        try:
+            # Download and prepare image
+            response = requests.get(image_url, timeout=10)
+            response.raise_for_status()
+            
+            image = Image.open(BytesIO(response.content))
+            image_np = np.array(image)
+            
+            # Convert RGBA to RGB if needed
+            if len(image_np.shape) == 3 and image_np.shape[2] == 4:
+                image_np = cv2.cvtColor(image_np, cv2.COLOR_RGBA2RGB)
+            
+            # Preprocess image
+            processed = self.preprocess_image(image_np)
+            
+            methods = []
+            if self.pyzbar_available:
+                methods.append(("pyzbar", self._try_pyzbar))
+            methods.append(("tesseract", self._try_tesseract))
+            if self.textract_available:
+                methods.append(("textract", self._try_textract))
+            if self.kraken_available:
+                methods.append(("kraken", self._try_kraken))
+            
+            total_methods = len(methods)
+            
+            for idx, (method_name, method_func) in enumerate(methods):
+                try:
+                    if progress_bar:
+                        progress = (idx + 1) / total_methods
+                        progress_bar.progress(progress, f"Trying {method_name}...")
+                    
+                    plate = method_func(processed)
+                    if plate:
+                        if progress_bar:
+                            progress_bar.progress(1.0, f"Found plate with {method_name}: {plate}")
+                        return plate
+                except Exception as e:
+                    st.warning(f"{method_name} failed: {str(e)}")
+                    continue
+            
+            if progress_bar:
+                progress_bar.progress(1.0, "No plate found")
+            return None
+            
+        except requests.RequestException as e:
+            st.error(f"Failed to download image: {str(e)}")
+            return None
+        except Exception as e:
+            st.error(f"Unexpected error: {str(e)}")
+            return None
+
+    def _try_pyzbar(self, image: np.ndarray) -> Optional[str]:
+        """Try detection with pyzbar"""
+        if not self.pyzbar_available:
             return None
             
         try:
+            from pyzbar.pyzbar import decode
             decoded = decode(image)
             for d in decoded:
                 text = d.data.decode()
                 plate = self.validate_plate(text)
                 if plate:
                     return plate
-            return None
-        except:
+        except Exception as e:
+            st.warning(f"pyzbar detection failed: {str(e)}")
+        return None
+
+    def _try_tesseract(self, image: np.ndarray) -> Optional[str]:
+        """Try detection with Tesseract"""
+        try:
+            text = pytesseract.image_to_string(image, config=self.tesseract_config)
+            return self.validate_plate(text)
+        except Exception as e:
+            st.warning(f"Tesseract detection failed: {str(e)}")
             return None
 
-    def _try_textract(self, image_path):
-        """Tenta riconoscimento con textract"""
-        if not self.has_textract:
+    def _try_textract(self, image: np.ndarray) -> Optional[str]:
+        """Try detection with textract"""
+        if not self.textract_available:
             return None
             
         try:
-            # Salva temporaneamente l'immagine
-            temp_path = "temp_plate.png"
-            cv2.imwrite(temp_path, image)
+            import textract
+            import tempfile
+            import os
             
-            # Estrai testo
-            text = textract.process(temp_path).decode()
-            return self.validate_plate(text)
-        except:
-            return None
-        finally:
+            # Save temp image
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp:
+                cv2.imwrite(temp.name, image)
+                text = textract.process(temp.name).decode()
+            
+            # Clean up
             try:
-                import os
-                os.remove(temp_path)
+                os.unlink(temp.name)
             except:
                 pass
+                
+            return self.validate_plate(text)
+        except Exception as e:
+            st.warning(f"textract detection failed: {str(e)}")
+            return None
 
-    def _try_kraken(self, image):
-        """Tenta riconoscimento con Kraken"""
-        if not self.has_kraken:
+    def _try_kraken(self, image: np.ndarray) -> Optional[str]:
+        """Try detection with Kraken"""
+        if not self.kraken_available:
             return None
             
         try:
-            # Kraken richiede immagini binarie
+            from kraken import pageseg
+            
+            # Ensure image is grayscale
             if len(image.shape) == 3:
                 image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
             
-            # Segmentazione e riconoscimento
+            # Segment and recognize
             segments = pageseg.segment(image)
-            text = ""
-            for segment in segments:
-                text += segment.text + " "
+            text = " ".join(segment.text for segment in segments)
             
             return self.validate_plate(text)
-        except:
-            return None
-
-    def detect_plate_from_url(self, image_url: str) -> str:
-        """Rileva la targa provando diversi metodi OCR in cascata"""
-        try:
-            # Scarica e prepara l'immagine
-            response = requests.get(image_url)
-            image = Image.open(BytesIO(response.content))
-            image_np = np.array(image)
-            
-            # Converti RGBA in RGB se necessario
-            if len(image_np.shape) == 3 and image_np.shape[2] == 4:
-                image_np = cv2.cvtColor(image_np, cv2.COLOR_RGBA2RGB)
-            
-            # Preprocessa l'immagine
-            processed = self.preprocess_image(image_np)
-            
-            # 1. Prova con pyzbar (per eventuali QR code)
-            plate = self._try_pyzbar(image_np)
-            if plate:
-                print(f"Targa trovata con pyzbar: {plate}")
-                return plate
-            
-            # 2. Prova con Tesseract
-            text = pytesseract.image_to_string(processed, config=self.tesseract_config)
-            plate = self.validate_plate(text)
-            if plate:
-                print(f"Targa trovata con Tesseract: {plate}")
-                return plate
-            
-            # 3. Prova con textract
-            plate = self._try_textract(processed)
-            if plate:
-                print(f"Targa trovata con textract: {plate}")
-                return plate
-            
-            # 4. Ultimo tentativo con Kraken
-            plate = self._try_kraken(processed)
-            if plate:
-                print(f"Targa trovata con Kraken: {plate}")
-                return plate
-            
-            return None
-            
         except Exception as e:
-            print(f"Errore nel processing dell'immagine: {str(e)}")
+            st.warning(f"Kraken detection failed: {str(e)}")
             return None
 
-    def validate_plate(self, text: str) -> str:
-        """Valida e formatta una potenziale targa italiana"""
+    def validate_plate(self, text: str) -> Optional[str]:
+        """Validate and format potential Italian plate"""
         if not text:
             return None
             
-        # Pulizia testo
+        # Clean text
         text = text.upper().strip()
         text = re.sub(r'[^A-Z0-9]', '', text)
         
-        # Pattern targhe
+        # Plate patterns
         patterns = [
             r'[A-Z]{2}\d{3}[A-Z]{2}',  # Standard
-            r'[A-Z]{2}\d{5}',          # Vecchio formato
-            r'[A-Z]{2}\d{4}[A-Z]{1,2}' # Altri formati
+            r'[A-Z]{2}\d{5}',          # Old format
+            r'[A-Z]{2}\d{4}[A-Z]{1,2}' # Other formats
         ]
         
-        # Controlla pattern diretti
+        # Check direct patterns
         for pattern in patterns:
             match = re.search(pattern, text)
             if match:
                 return match.group(0)
         
-        # Prova correzioni comuni
+        # Try common corrections
         corrections = {
             '0': 'O', 'O': '0',
             'I': '1', '1': 'I',
