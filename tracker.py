@@ -141,7 +141,7 @@ class AutoTracker:
                         with st.spinner("🔍 Analisi targhe..."):
                             for img_url in images:
                                 try:
-                                    if plate := detector.detect_with_retry(img_url):
+                                    if plate_detector and (plate := plate_detector.detect_with_retry(img_url)):
                                         break  # Interrompi appena trovi una targa valida
                                 except Exception as e:
                                     st.warning(f"⚠️ Errore analisi immagine: {str(e)}")
