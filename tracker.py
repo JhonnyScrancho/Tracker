@@ -111,10 +111,10 @@ class AutoTracker:
 
                     # Immagini
                     images = []
-                    img_elements = article.select('.dp-new-gallery__picture source')
+                    img_elements = article.select('.dp-new-gallery__img')
                     for img in img_elements:
-                        img_url = img.get('srcset', '').split(' ')[0]  # Prendiamo il primo URL dal srcset
-                        if img_url and img_url not in images:
+                        img_url = img.get('data-src') or img.get('src')
+                        if img_url:
                             images.append(img_url)
 
                     # Prezzi
@@ -148,14 +148,15 @@ class AutoTracker:
                         'power': None,
                         'fuel': None
                     }
-                    
-                    for item in article.select('.dp-listing-item__detail-item--hasData'):
+
+                    details_items = article.select('.dp-listing-item__detail-item')
+                    for item in details_items:
                         text = item.text.strip()
-                        if 'km' in text.lower():
+                        # Verifica se il testo contiene un numero seguito da "km"
+                        if text.endswith('km'):
                             try:
-                                # Rimuove "km" e spazi, poi converte eliminando i punti
-                                km_text = text.lower().replace('km', '').replace('.', '').strip()
-                                details['mileage'] = int(km_text) if km_text else None
+                                km_value = ''.join(c for c in text if c.isdigit())
+                                details['mileage'] = int(km_value)
                             except ValueError:
                                 st.write(f"⚠️ Non riesco a convertire il chilometraggio: {text}")
                         elif '/' in text and len(text) <= 8:
