@@ -128,6 +128,11 @@ class AutoTracker:
                             full_title = "N/D"
                             st.write("⚠️ URL non trovato per questo annuncio")
 
+                    # Estrazione immagini
+                    images = []
+                    if url:
+                        images = self.get_listing_images(url)
+
                     # Estrazione targa
                     plate = None
 
@@ -148,7 +153,7 @@ class AutoTracker:
                             plate = self._extract_plate(full_title)
                         if not plate:
                             plate = listing_id  # Usa l'ID come fallback finale
-                        
+
                     # ESTRAZIONE PREZZI MIGLIORATA
                     price_section = article.select_one('[data-testid="price-section"]')
                     prices = {
