@@ -6,7 +6,13 @@ import re
 import numpy as np
 import streamlit as st
 from typing import Optional, List, Tuple
-from pyzbar.pyzbar import decode
+try:
+    from pyzbar.pyzbar import decode
+    PYZBAR_AVAILABLE = True
+except ImportError:
+    print("Warning: pyzbar non disponibile. Il riconoscimento da barcode sarà disabilitato.")
+    PYZBAR_AVAILABLE = False
+    decode = None
 import time
 from collections import OrderedDict
 
@@ -126,7 +132,10 @@ class PlateDetector:
         return candidates
 
     def _try_pyzbar(self, image: Image.Image) -> Optional[str]:
-        """Prova a trovare la targa in codici QR/barcode"""
+        """Try to find plate in QR codes or barcodes"""
+        if not PYZBAR_AVAILABLE:
+            return None
+            
         try:
             decoded = decode(image)
             for d in decoded:

@@ -1,5 +1,7 @@
 tesseract-ocr
 libtesseract-dev
 libzbar0
+zbar-tools
+python3-zbar
 poppler-utils
 libgl1-mesa-glx
