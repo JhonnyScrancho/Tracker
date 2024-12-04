@@ -18,7 +18,6 @@ class PlateDetector:
                 endpoint=st.secrets["azure"]["endpoint"],
                 credentials=CognitiveServicesCredentials(st.secrets["azure"]["key"])
             )
-            # Cache per ottimizzazione
             self.results_cache = {}
         except Exception as e:
             st.error(f"Errore inizializzazione Azure Vision: {str(e)}")
@@ -63,7 +62,7 @@ class PlateDetector:
             # Esegui OCR direttamente sull'URL
             result = self.client.read(url=image_url, raw=True)
             
-            # Get the operation location (URL with ID da monitorare)
+            # Get the operation location (URL with ID)
             operation_location = result.headers["Operation-Location"]
             operation_id = operation_location.split("/")[-1]
 
@@ -83,22 +82,20 @@ class PlateDetector:
                     
                 for text_result in get_text_result.analyze_result.read_results:
                     for line in text_result.lines:
-                        # Valida solo se confidence alta
-                        if line.appearance.confidence > 0.7:
-                            if plate := self._validate_plate(line.text):
-                                # Cache risultato
-                                self.results_cache[image_url] = {
-                                    'plate': plate,
-                                    'timestamp': datetime.now(),
-                                    'confidence': line.appearance.confidence
-                                }
-                                
-                                if progress_bar:
-                                    progress_bar.progress(1.0, f"Targa trovata: {plate}")
-                                return plate
+                        # Controlla il testo per possibili targhe
+                        if plate := self._validate_plate(line.text):
+                            # Cache risultato
+                            self.results_cache[image_url] = {
+                                'plate': plate,
+                                'timestamp': datetime.now()
+                            }
+                            
+                            if progress_bar:
+                                progress_bar.progress(1.0, f"✅ Targa trovata: {plate}")
+                            return plate
 
             if progress_bar:
-                progress_bar.progress(1.0, "Nessuna targa trovata")
+                progress_bar.progress(1.0, "❌ Nessuna targa trovata")
             return None
             
         except Exception as e:
@@ -120,7 +117,7 @@ class PlateDetector:
                     return plate
                 
                 progress_text.warning(f"⚠️ Tentativo {attempt + 1} fallito, riprovo...")
-                time.sleep(1)  # Pausa tra tentativi
+                time.sleep(1)
                     
             except Exception as e:
                 if attempt == max_retries - 1:
