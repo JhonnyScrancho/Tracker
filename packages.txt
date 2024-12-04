@@ -1,0 +1,6 @@
+tesseract-ocr
+libtesseract-dev
+zbar-tools
+libzbar0
+poppler-utils
+unpaper

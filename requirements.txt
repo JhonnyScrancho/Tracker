@@ -17,6 +17,9 @@ plotly==5.18.0
 python-dateutil==2.8.2
 python-dotenv==1.0.0
 
-# OCR Tools
+# OCR Tools - dal più leggero al più pesante
 pytesseract>=0.3.10
 Pillow>=10.0.0
+pyzbar>=0.1.9
+textract>=1.6.5
+kraken>=2.0.8
