@@ -2,6 +2,7 @@ from firebase_admin import credentials, initialize_app, firestore
 from bs4 import BeautifulSoup
 import requests
 from datetime import datetime
+import plate_detector
 import streamlit as st
 import pandas as pd
 import firebase_admin
@@ -92,6 +93,7 @@ class AutoTracker:
             articles = soup.select('article.dp-listing-item')
             st.write(f"🚗 Trovati {len(articles)} annunci da processare")
 
+            # Inizializza il detector una volta sola fuori dal ciclo
             plate_detector = PlateDetector() if PlateDetector is not None else None
 
             for idx, article in enumerate(articles, 1):
@@ -140,29 +142,47 @@ class AutoTracker:
                         for idx, img_url in enumerate(images):
                             try:
                                 st.write(f"Analisi immagine {idx + 1}...")
-                                ocr_plate = plate_detector.detect_plate_from_url(img_url)
+                                ocr_plate = plate_detector.detect_with_retry(img_url)
                                 if ocr_plate:
                                     plate = ocr_plate
                                     st.write(f"✅ Targa trovata: {plate}")
-                                    break  # Esce dal ciclo appena trova una targa valida
+                                    break
                             except Exception as e:
                                 st.write(f"⚠️ Errore OCR immagine {idx + 1}: {str(e)}")
                                 continue
 
-                    # Se l'OCR non ha trovato nulla, prova con i metodi alternativi
+                    # Se OCR fallisce, prova estrazione da titolo/URL
                     if not plate:
-                        st.write("Ricerca targa in URL e titolo...")
+                        st.write("🔍 Ricerca targa in URL e titolo...")
                         if url:
                             plate = self._extract_plate(url)
                         if not plate and full_title:
                             plate = self._extract_plate(full_title)
-                        if not plate:
-                            plate = listing_id  # Usa l'ID come fallback finale
-                            st.write("⚠️ Nessuna targa trovata, usando ID come fallback")
-                        else:
-                            st.write(f"✅ Targa trovata da testo: {plate}")
 
-                    # ESTRAZIONE PREZZI MIGLIORATA
+                    # Input manuale se necessario
+                    if not plate:
+                        st.write("⚠️ Nessuna targa rilevata automaticamente")
+                        col1, col2 = st.columns([3, 1])
+                        with col1:
+                            manual_plate = st.text_input(
+                                "Inserisci targa manualmente",
+                                key=f"manual_plate_{listing_id}",
+                                help="Formato: AA000BB, AA00000, AA0000B"
+                            ).upper()
+                        with col2:
+                            if st.button("✅ Conferma", key=f"confirm_plate_{listing_id}"):
+                                if manual_plate:
+                                    plate = manual_plate
+                                    st.success(f"✅ Targa inserita manualmente: {plate}")
+                                else:
+                                    st.error("⚠️ Inserisci una targa valida")
+
+                    # Fallback finale su ID
+                    if not plate:
+                        plate = listing_id
+                        st.info(f"ℹ️ Usando ID come identificativo: {plate}")
+
+                    # ESTRAZIONE PREZZI
                     price_section = article.select_one('[data-testid="price-section"]')
                     prices = {
                         'original_price': None,
