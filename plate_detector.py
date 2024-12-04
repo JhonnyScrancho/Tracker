@@ -5,12 +5,16 @@ from io import BytesIO
 import re
 import cv2
 import numpy as np
+try:
+    import easyocr
+    import paddleocr
+except ImportError:
+    print("EasyOCR o PaddleOCR non disponibili. Verranno usati solo i metodi disponibili.")
 
 class PlateDetector:
     def __init__(self):
-        """Inizializza il detector di targhe"""
+        """Inizializza i vari detector di targhe"""
         self.cv2 = None
-        # Configurazione tesseract ottimizzata per targhe
         self.tesseract_config = '--oem 3 --psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
         
         try:
@@ -18,83 +22,24 @@ class PlateDetector:
             self.cv2 = cv2
         except ImportError:
             print("OpenCV not available. Image preprocessing will be disabled.")
-
-    def detect_plate_from_url(self, image_url: str) -> str:
-        """Rileva la targa da un'immagine tramite URL con debug avanzato"""
-        if self.cv2 is None:
-            return None
-            
+        
+        # Inizializza EasyOCR se disponibile
         try:
-            print(f"Analisi immagine: {image_url}")
-            
-            # Scarica l'immagine
-            response = requests.get(image_url)
-            image = Image.open(BytesIO(response.content))
-            
-            # Converti in array numpy per OpenCV
-            image_np = np.array(image)
-            
-            # Se l'immagine è in formato RGBA, converti in RGB
-            if image_np.shape[-1] == 4:
-                image_np = cv2.cvtColor(image_np, cv2.COLOR_RGBA2RGB)
-                print("Convertita immagine da RGBA a RGB")
-            
-            # Debug dimensioni immagine
-            print(f"Dimensioni immagine: {image_np.shape}")
-            
-            # Estrai regione di interesse (ROI) - focus sulla parte inferiore dove di solito è la targa
-            height = image_np.shape[0]
-            width = image_np.shape[1]
-            roi_height = height // 3  # Prendi il terzo inferiore dell'immagine
-            roi = image_np[height-roi_height:height, :]
-            print(f"Estratta ROI: {roi.shape}")
-            
-            # Preprocessa l'immagine originale
-            processed = self.preprocess_image(image_np)
-            
-            # Preprocessa la ROI
-            processed_roi = self.preprocess_image(roi)
-            
-            # Lista di configurazioni OCR da provare
-            configs = [
-                '--oem 3 --psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
-                '--oem 3 --psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
-                '--oem 3 --psm 8 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-            ]
-            
-            for idx, config in enumerate(configs):
-                print(f"\nTentativo OCR #{idx+1} con config: {config}")
-                
-                # Prova OCR su immagine intera preprocessata
-                text1 = pytesseract.image_to_string(processed, config=config)
-                print(f"OCR immagine intera: '{text1.strip()}'")
-                plate1 = self.validate_plate(text1)
-                if plate1:
-                    print(f"✅ Targa valida trovata nell'immagine intera: {plate1}")
-                    return plate1
-                
-                # Prova OCR su ROI preprocessata
-                text2 = pytesseract.image_to_string(processed_roi, config=config)
-                print(f"OCR ROI: '{text2.strip()}'")
-                plate2 = self.validate_plate(text2)
-                if plate2:
-                    print(f"✅ Targa valida trovata nella ROI: {plate2}")
-                    return plate2
-                
-                # Prova OCR su immagine originale
-                text3 = pytesseract.image_to_string(image_np, config=config)
-                print(f"OCR immagine originale: '{text3.strip()}'")
-                plate3 = self.validate_plate(text3)
-                if plate3:
-                    print(f"✅ Targa valida trovata nell'immagine originale: {plate3}")
-                    return plate3
-
-            print("❌ Nessuna targa valida trovata")
-            return None
-                
+            self.easyocr_reader = easyocr.Reader(['en', 'it'])
+            self.has_easyocr = True
+            print("EasyOCR inizializzato correttamente")
         except Exception as e:
-            print(f"Errore nel processing dell'immagine: {str(e)}")
-            return None
+            print(f"EasyOCR non disponibile: {str(e)}")
+            self.has_easyocr = False
+            
+        # Inizializza PaddleOCR se disponibile
+        try:
+            self.paddleocr_reader = paddleocr.PaddleOCR(use_angle_cls=True, lang='en')
+            self.has_paddleocr = True
+            print("PaddleOCR inizializzato correttamente")
+        except Exception as e:
+            print(f"PaddleOCR non disponibile: {str(e)}")
+            self.has_paddleocr = False
 
     def preprocess_image(self, image):
         """Preprocessa l'immagine per migliorare il riconoscimento della targa"""
@@ -102,20 +47,15 @@ class PlateDetector:
             return image
             
         try:
-            print("Inizio preprocessing immagine...")
-            
             # Converti in scala di grigi
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            print("Convertito in scala di grigi")
             
             # Aumenta il contrasto
             clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
             gray = clahe.apply(gray)
-            print("Applicato CLAHE per aumento contrasto")
             
             # Riduzione rumore
             denoised = cv2.fastNlMeansDenoising(gray)
-            print("Applicata riduzione rumore")
             
             # Thresholding adattivo
             binary = cv2.adaptiveThreshold(
@@ -123,12 +63,10 @@ class PlateDetector:
                 cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                 cv2.THRESH_BINARY_INV, 11, 2
             )
-            print("Applicato thresholding adattivo")
             
-            # Operazioni morfologiche per migliorare il testo
+            # Operazioni morfologiche
             kernel = np.ones((2,2), np.uint8)
             morph = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
-            print("Applicate operazioni morfologiche")
             
             return morph
             
@@ -136,50 +74,144 @@ class PlateDetector:
             print(f"Errore nel preprocessing: {str(e)}")
             return image
 
+    def detect_plate_from_url(self, image_url: str) -> str:
+        """Rileva la targa provando diversi metodi OCR"""
+        try:
+            # Scarica l'immagine
+            response = requests.get(image_url)
+            image = Image.open(BytesIO(response.content))
+            image_np = np.array(image)
+            
+            # Se l'immagine è in formato RGBA, converti in RGB
+            if len(image_np.shape) == 3 and image_np.shape[2] == 4:
+                image_np = cv2.cvtColor(image_np, cv2.COLOR_RGBA2RGB)
+            
+            # Preprocessa l'immagine
+            processed = self.preprocess_image(image_np)
+            
+            # 1. Prova con Tesseract
+            print("Tentativo con Tesseract...")
+            plate = self._try_tesseract(processed)
+            if plate:
+                print(f"Tesseract ha trovato la targa: {plate}")
+                return plate
+                
+            # 2. Prova con EasyOCR
+            if self.has_easyocr:
+                print("Tentativo con EasyOCR...")
+                plate = self._try_easyocr(image_np)  # EasyOCR lavora meglio con l'immagine originale
+                if plate:
+                    print(f"EasyOCR ha trovato la targa: {plate}")
+                    return plate
+                    
+            # 3. Prova con PaddleOCR
+            if self.has_paddleocr:
+                print("Tentativo con PaddleOCR...")
+                plate = self._try_paddleocr(image_np)  # PaddleOCR preferisce l'immagine originale
+                if plate:
+                    print(f"PaddleOCR ha trovato la targa: {plate}")
+                    return plate
+            
+            print("Nessuna targa trovata con nessun metodo")
+            return None
+            
+        except Exception as e:
+            print(f"Errore nel processing dell'immagine: {str(e)}")
+            return None
+
+    def _try_tesseract(self, image):
+        """Tentativo di riconoscimento con Tesseract"""
+        try:
+            text = pytesseract.image_to_string(image, config=self.tesseract_config)
+            return self.validate_plate(text)
+        except Exception as e:
+            print(f"Errore Tesseract: {str(e)}")
+            return None
+
+    def _try_easyocr(self, image):
+        """Tentativo di riconoscimento con EasyOCR"""
+        try:
+            results = self.easyocr_reader.readtext(image)
+            for _, text, conf in results:
+                if conf > 0.5:  # Considera solo risultati con confidenza > 50%
+                    plate = self.validate_plate(text)
+                    if plate:
+                        return plate
+            return None
+        except Exception as e:
+            print(f"Errore EasyOCR: {str(e)}")
+            return None
+
+    def _try_paddleocr(self, image):
+        """Tentativo di riconoscimento con PaddleOCR"""
+        try:
+            result = self.paddleocr_reader.ocr(image)
+            if result:
+                for line in result:
+                    for word_info in line:
+                        text = word_info[1][0]  # Estrai il testo rilevato
+                        conf = word_info[1][1]  # Confidenza
+                        if conf > 0.5:  # Considera solo risultati con confidenza > 50%
+                            plate = self.validate_plate(text)
+                            if plate:
+                                return plate
+            return None
+        except Exception as e:
+            print(f"Errore PaddleOCR: {str(e)}")
+            return None
+
     def validate_plate(self, text: str) -> str:
         """Valida e formatta una potenziale targa italiana"""
         if not text:
             return None
             
-        # Pulizia del testo
+        # Pulizia e normalizzazione
         text = text.upper().strip()
         text = re.sub(r'[^A-Z0-9]', '', text)
         
-        # Pattern per targhe italiane
+        # Pattern targhe italiane con variazioni comuni
         patterns = [
-            r'^[A-Z]{2}\d{3}[A-Z]{2}$',     # Standard (FT831AG)
-            r'^[A-Z]{2}\d{5}$',              # Vecchio formato
-            r'^[A-Z]{2}\d{4}[A-Z]{1,2}$'     # Altri formati validi
+            r'[A-Z]{2}\d{3}[A-Z]{2}',  # Standard (es. FT831AG)
+            r'[A-Z]{2}\d{5}',          # Vecchio formato
+            r'[A-Z]{2}\d{4}[A-Z]{1,2}' # Altri formati validi
         ]
         
-        # Prima verifica pattern esatti
-        for pattern in patterns:
-            if re.match(pattern, text):
-                return text
-        
-        # Se non trova match esatti, cerca pattern più flessibili
-        text = re.sub(r'[^A-Z0-9]', '', text)
         for pattern in patterns:
             match = re.search(pattern, text)
             if match:
                 return match.group(0)
-                
-        # Ultimo tentativo con correzioni comuni
-        text = text.replace('0', 'O').replace('1', 'I').replace('5', 'S')
-        for pattern in patterns:
-            if re.match(pattern, text):
-                return text
-                
+        
+        # Prova correzioni comuni
+        corrections = {
+            '0': 'O',
+            'O': '0',
+            'I': '1',
+            '1': 'I',
+            'S': '5',
+            '5': 'S'
+        }
+        
+        for old, new in corrections.items():
+            corrected_text = text.replace(old, new)
+            for pattern in patterns:
+                match = re.search(pattern, corrected_text)
+                if match:
+                    return match.group(0)
+        
         return None
 
     def detect_plates_from_listing(self, image_urls: list) -> str:
         """Cerca la targa in tutte le immagini di un annuncio"""
-        if self.cv2 is None or not image_urls:
+        if not image_urls:
             return None
             
         for url in image_urls:
-            plate = self.detect_plate_from_url(url)
-            if plate:
-                return plate
+            try:
+                plate = self.detect_plate_from_url(url)
+                if plate:
+                    return plate
+            except Exception as e:
+                print(f"Errore nell'analisi dell'immagine {url}: {str(e)}")
+                continue
                 
         return None
