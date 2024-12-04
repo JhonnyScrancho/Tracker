@@ -153,13 +153,16 @@ def main():
                     df['prezzo'] = df['original_price'].apply(format_price)
                     df['prezzo_scontato'] = df['discounted_price'].apply(format_price)
                     
-                    # Aggiunta link cliccabile
-                    df['link'] = df['url'].apply(lambda x: f'<a href="{x}" target="_blank">🔗 Vedi</a>')
+                    # Aggiunta link cliccabile solo se la colonna url esiste
+                    if 'url' in df.columns:
+                        df['link'] = df['url'].apply(lambda x: f'<a href="{x}" target="_blank">🔗 Vedi</a>' if pd.notna(x) else '')
+                    else:
+                        df['link'] = ''
                     
-                    # Selezione e ordinamento colonne
-                    display_columns = ['title', 'prezzo', 'prezzo_scontato', 'mileage', 
-                                     'registration', 'fuel', 'link']
-                    available_columns = [col for col in display_columns if col in df.columns]
+                    # Selezione colonne disponibili
+                    base_columns = ['title', 'prezzo', 'prezzo_scontato', 'mileage', 
+                                  'registration', 'fuel', 'link']
+                    available_columns = [col for col in base_columns if col in df.columns]
                     
                     display_df = df[available_columns].copy()
                     
@@ -174,13 +177,19 @@ def main():
                         'link': 'Link'
                     }
                     
-                    display_df.columns = [column_mapping[col] for col in display_df.columns]
+                    # Applica mapping solo per le colonne disponibili
+                    display_df.columns = [column_mapping.get(col, col) for col in display_df.columns]
+                    
+                    # Debug info
+                    st.write("Colonne disponibili:", df.columns.tolist())
                     
                     # Visualizzazione tabella con link cliccabili
                     st.write(display_df.to_html(escape=False, index=False), unsafe_allow_html=True)
                     
                 except Exception as e:
                     st.error(f"Errore nella creazione del DataFrame: {str(e)}")
+                    st.write("Debug - Struttura dati listing:", listings[0].keys() if listings else "No listings")
+                    
                 
                 # Visualizzazione dettagliata stile AutoScout24
                 with st.expander("📸 Dettagli Annunci", expanded=False):
