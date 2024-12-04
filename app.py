@@ -81,6 +81,11 @@ def main():
                             with st.spinner("⏳ Aggiornamento in corso..."):
                                 listings = tracker.scrape_dealer(dealer['url'])
                                 if listings:
+                                    st.write(f"Debug: Trovati {len(listings)} annunci da salvare")
+                                    # Assicurati che ogni annuncio abbia il dealer_id
+                                    for listing in listings:
+                                        listing['dealer_id'] = dealer['id']
+                                    
                                     tracker.save_listings(listings)
                                     tracker.mark_inactive_listings(dealer['id'], [l['id'] for l in listings])
                                     progress_placeholder.success("✅ Aggiornamento completato!")
@@ -88,6 +93,7 @@ def main():
                                     progress_placeholder.warning("⚠️ Nessun annuncio trovato")
                         except Exception as e:
                             progress_placeholder.error(f"❌ Errore: {str(e)}")
+                            st.error(f"Stack trace: {str(e)}")
             
             with col2:
                 remove_button = st.button("❌ Rimuovi", key=f"remove_{dealer['id']}")
@@ -103,38 +109,45 @@ def main():
             
             # Mostra annunci attivi
             listings = tracker.get_active_listings(dealer['id'])
+            st.write(f"Debug: Recuperati {len(listings) if listings else 0} annunci attivi")
+            
             if listings:
-                st.write(f"Debug: Trovati {len(listings)} annunci")
-                st.write("Debug: Struttura primo annuncio:", listings[0].keys())
-                
-                # Controlliamo se abbiamo tutti i campi necessari
-                df = pd.DataFrame(listings)
-                st.write("Debug: Colonne DataFrame:", df.columns.tolist())
-                
-                # Verifichiamo i valori dei prezzi
-                st.write("Debug: Sample prezzi originali:", df['original_price'].head())
-                st.write("Debug: Sample prezzi scontati:", df['discounted_price'].head())
-                
-                df['prezzo'] = df['original_price'].apply(format_price)
-                df['prezzo_scontato'] = df['discounted_price'].apply(format_price)
-                
-                display_df = df[[
-                    'title', 'prezzo', 'prezzo_scontato', 'mileage', 
-                    'registration', 'fuel'
-                ]].copy()
-                
-                display_df.columns = [
-                    'Modello', 'Prezzo', 'Prezzo Scontato', 'Km',
-                    'Immatricolazione', 'Carburante'
-                ]
-                
-                st.write("Debug: Colonne finali:", display_df.columns.tolist())
-                st.dataframe(display_df, use_container_width=True)
-            else:
-                st.info("ℹ️ Nessun annuncio attivo")
-                st.write("Debug: get_active_listings ha restituito una lista vuota")
-                
-                st.dataframe(display_df, use_container_width=True)
+                try:
+                    st.write("Debug: Creazione DataFrame")
+                    df = pd.DataFrame(listings)
+                    st.write("Debug: Colonne disponibili:", df.columns.tolist())
+                    
+                    # Assicurati che i prezzi siano numerici
+                    df['original_price'] = pd.to_numeric(df['original_price'], errors='coerce')
+                    df['discounted_price'] = pd.to_numeric(df['discounted_price'], errors='coerce')
+                    
+                    df['prezzo'] = df['original_price'].apply(format_price)
+                    df['prezzo_scontato'] = df['discounted_price'].apply(format_price)
+                    
+                    # Seleziona solo le colonne necessarie
+                    display_columns = ['title', 'prezzo', 'prezzo_scontato', 'mileage', 'registration', 'fuel']
+                    # Verifica che tutte le colonne esistano
+                    available_columns = [col for col in display_columns if col in df.columns]
+                    
+                    display_df = df[available_columns].copy()
+                    
+                    # Mapping dei nomi delle colonne
+                    column_mapping = {
+                        'title': 'Modello',
+                        'prezzo': 'Prezzo',
+                        'prezzo_scontato': 'Prezzo Scontato',
+                        'mileage': 'Km',
+                        'registration': 'Immatricolazione',
+                        'fuel': 'Carburante'
+                    }
+                    
+                    display_df.columns = [column_mapping[col] for col in display_df.columns]
+                    
+                    st.write("Debug: Display DataFrame shape:", display_df.shape)
+                    st.dataframe(display_df, use_container_width=True)
+                    
+                except Exception as e:
+                    st.error(f"Errore nella creazione del DataFrame: {str(e)}")
                 
                 # Visualizzazione dettagliata annunci con immagini
                 with st.expander("📸 Mostra Dettagli e Immagini", expanded=False):
@@ -143,18 +156,22 @@ def main():
                         col = cols[idx % 3]
                         with col:
                             if listing.get('image_urls'):
-                                st.image(
-                                    listing['image_urls'][0],
-                                    caption=listing['title'],
-                                    use_column_width=True
-                                )
+                                try:
+                                    st.image(
+                                        listing['image_urls'][0],
+                                        caption=listing['title'],
+                                        use_column_width=True
+                                    )
+                                except Exception as e:
+                                    st.error(f"Errore caricamento immagine: {str(e)}")
                             
-                            st.markdown(f"**Prezzo**: {format_price(listing['original_price'])}")
+                            st.markdown(f"**Prezzo**: {format_price(listing.get('original_price'))}")
                             if listing.get('has_discount') and listing.get('discounted_price'):
                                 st.markdown(f"**Prezzo Scontato**: {format_price(listing['discounted_price'])}")
-                                discount = ((listing['original_price'] - listing['discounted_price']) / 
-                                         listing['original_price'] * 100)
-                                st.markdown(f"**Sconto**: {discount:.1f}%")
+                                if listing['original_price'] and listing['discounted_price']:
+                                    discount = ((listing['original_price'] - listing['discounted_price']) / 
+                                             listing['original_price'] * 100)
+                                    st.markdown(f"**Sconto**: {discount:.1f}%")
                             
                             if listing.get('mileage'):
                                 st.markdown(f"**Km**: {listing['mileage']:,d}")
