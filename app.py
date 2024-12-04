@@ -76,18 +76,17 @@ def main():
             with col1:
                 if st.button("🔄 Aggiorna", key=f"update_{dealer['id']}"):
                     st.markdown('<div class="log-container">', unsafe_allow_html=True)
-                    with st.status("⏳ Aggiornamento in corso..."):
+                    with st.status("⏳ Aggiornamento in corso...", expanded=True) as status:
                         try:
-                            with st.expander("Log Scraping", expanded=True):
-                                listings = tracker.scrape_dealer(dealer['url'])
-                                if listings:
-                                    tracker.save_listings(listings)
-                                    tracker.mark_inactive_listings(dealer['id'], [l['id'] for l in listings])
-                                    st.success(f"✅ Aggiornati {len(listings)} annunci")
-                                else:
-                                    st.warning("⚠️ Nessun annuncio trovato")
+                            listings = tracker.scrape_dealer(dealer['url'])
+                            if listings:
+                                tracker.save_listings(listings)
+                                tracker.mark_inactive_listings(dealer['id'], [l['id'] for l in listings])
+                                status.update(label="✅ Aggiornamento completato!", state="complete")
+                            else:
+                                status.update(label="⚠️ Nessun annuncio trovato", state="error")
                         except Exception as e:
-                            st.error(f"❌ Errore: {str(e)}")
+                            status.update(label=f"❌ Errore: {str(e)}", state="error")
                     st.markdown('</div>', unsafe_allow_html=True)
             
             with col2:
