@@ -18,6 +18,3 @@ python-dotenv==1.0.0
 # OCR Tools
 pytesseract>=0.3.10
 Pillow>=10.0.0
-
-# Optional dependencies
-opencv-python>=4.8.0

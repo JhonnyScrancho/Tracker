@@ -3,7 +3,6 @@ from tracker import AutoTracker
 import pandas as pd
 from datetime import datetime
 from utils import format_price, create_timeline_chart, create_price_history_chart
-from plate_detector import PlateDetector
 
 st.set_page_config(
     page_title="Tracker",
