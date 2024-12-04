@@ -137,14 +137,14 @@ class AutoTracker:
 
                     # Estrazione targa con approccio sequenziale
                     plate = None
-                    if plate_detector and images:
+                    if images:  # Se abbiamo trovato delle immagini
                         st.write("🔍 Analisi targhe nelle immagini...")
+                        detector = PlateDetector()  # Inizializza il detector
                         for idx, img_url in enumerate(images):
                             try:
                                 st.write(f"Analisi immagine {idx + 1}...")
-                                ocr_plate = plate_detector.detect_with_retry(img_url)
-                                if ocr_plate:
-                                    plate = ocr_plate
+                                plate = detector.detect_with_retry(img_url)  # Analizza l'immagine
+                                if plate:
                                     st.write(f"✅ Targa trovata: {plate}")
                                     break
                             except Exception as e:
