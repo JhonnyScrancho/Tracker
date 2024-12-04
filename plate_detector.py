@@ -1,7 +1,7 @@
 from azure.cognitiveservices.vision.computervision import ComputerVisionClient
 from azure.cognitiveservices.vision.computervision.models import OperationStatusCodes
 from msrest.authentication import CognitiveServicesCredentials
-from PIL import Image, ImageEnhance
+from PIL import Image, ImageEnhance, ImageFilter
 import requests
 from io import BytesIO
 import re
@@ -27,20 +27,33 @@ class PlateDetector:
         """Migliora la qualità dell'immagine usando PIL"""
         try:
             # Download immagine
-            response = requests.get(image_url)
+            response = requests.get(image_url, timeout=10)
             img = Image.open(BytesIO(response.content))
             
-            # Migliora contrasto
-            enhancer = ImageEnhance.Contrast(img)
-            img = enhancer.enhance(1.5)
+            # Converti in scala di grigi per miglior contrasto
+            img = img.convert('L')
             
-            # Migliora luminosità
+            # Applica una serie di miglioramenti
+            # 1. Aumenta nitidezza
+            img = img.filter(ImageFilter.SHARPEN)
+            
+            # 2. Migliora contrasto
+            enhancer = ImageEnhance.Contrast(img)
+            img = enhancer.enhance(2.0)  # Aumentato per targhe più visibili
+            
+            # 3. Migliora luminosità
             enhancer = ImageEnhance.Brightness(img)
-            img = enhancer.enhance(1.2)
+            img = enhancer.enhance(1.3)
+            
+            # 4. Riduci rumore
+            img = img.filter(ImageFilter.MedianFilter(size=3))
+            
+            # 5. Aumenta nitidezza finale
+            img = img.filter(ImageFilter.UnsharpMask(radius=2, percent=150, threshold=3))
             
             # Converti in bytes
             img_byte_arr = BytesIO()
-            img.save(img_byte_arr, format=img.format if img.format else 'JPEG')
+            img.save(img_byte_arr, format='JPEG', quality=95)
             img_byte_arr.seek(0)
             
             return img_byte_arr
@@ -94,10 +107,8 @@ class PlateDetector:
             if not enhanced_image:
                 if progress_bar:
                     progress_bar.progress(0.4, "Usando immagine originale...")
-                # Usa URL originale se il preprocessing fallisce
                 result = self.client.read(url=image_url, raw=True)
             else:
-                # Usa immagine migliorata
                 if progress_bar:
                     progress_bar.progress(0.4, "Analizzando con Azure...")
                 result = self.client.read_in_stream(enhanced_image, raw=True)
