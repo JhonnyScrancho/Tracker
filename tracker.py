@@ -92,58 +92,56 @@ class AutoTracker:
 
                     # Identificazione annuncio
                     listing_id = article.get('id', '')
-                    url_elem = article.select_one('.dp-listing-item-title-wrapper a')
-                    url = f"https://www.autoscout24.it{url_elem['href']}" if url_elem and 'href' in url_elem.attrs else None
+                    
+                    # Estrazione URL e titolo
+                    url_elem = article.select_one('a.dp-link.dp-listing-item-title-wrapper')
+                    if url_elem and 'href' in url_elem.attrs:
+                        url = f"https://www.autoscout24.it{url_elem['href']}"
+                        # Estrazione titolo e versione
+                        title_elem = url_elem.select_one('h2')
+                        version_elem = url_elem.select_one('.version')
+                        
+                        title = title_elem.text.strip() if title_elem else "N/D"
+                        version = version_elem.text.strip() if version_elem else ""
+                        full_title = f"{title} {version}".strip()
+                    else:
+                        url = None
+                        full_title = "N/D"
+                        st.write("⚠️ URL non trovato per questo annuncio")
 
-                    # Titolo e versione
-                    title_elem = article.select_one('.dp-listing-item-title-wrapper h2')
-                    version_elem = article.select_one('.dp-listing-item-title-wrapper .version')
-                    title = title_elem.text.strip() if title_elem else "N/D"
-                    version = version_elem.text.strip() if version_elem else ""
-
-                    # Estrazione targa dall'URL o titolo
+                    # Estrazione targa
                     plate = None
                     if url:
                         plate = self._extract_plate(url)
-                    if not plate and title:
-                        plate = self._extract_plate(title)
+                    if not plate and full_title:
+                        plate = self._extract_plate(full_title)
                     if not plate:
                         plate = listing_id
 
-                    # Immagini
+                    # Estrazione immagini
                     images = []
-                    gallery_container = article.select('.dp-listing-gallery')
-                    if gallery_container:
-                        img_elements = gallery_container[0].select('img.dp-new-gallery__img')
-                        for img in img_elements:
-                            # Get both data-src and src attributes
-                            img_url = img.get('data-src') or img.get('src')
-                            if img_url:
-                                # Convert relative to absolute URL if needed
-                                if not img_url.startswith('http'):
-                                    img_url = f"https:{img_url}"
+                    gallery = article.select('.dp-gallery img, img.dp-new-gallery__img')
+                    for img in gallery:
+                        img_url = img.get('data-src') or img.get('src')
+                        if img_url:
+                            if not img_url.startswith('http'):
+                                img_url = f"https:{img_url}"
                                 
-                                # Convert thumbnail URLs to full-size images
-                                # Replace both WebP and standard thumbnail formats
-                                img_url = img_url.replace('/250x188.webp', '_6.jpg')
-                                img_url = img_url.replace('/250x188', '_6.jpg')
-                                
-                                images.append(img_url)
+                            # Rimuovi il suffisso di ridimensionamento e conversione webp
+                            if img_url.endswith('.webp'):
+                                img_url = img_url.rsplit('.webp', 1)[0]
+                            
+                            if '/250x188' in img_url:
+                                img_url = img_url.split('/250x188', 1)[0]
+                            
+                            # Assicurati che l'URL termini con .jpg
+                            if not img_url.endswith('.jpg'):
+                                img_url = f"{img_url}.jpg"
 
-                    # Ensure we get all available images
-                    if not images:
-                        # Fallback to other possible gallery containers
-                        alt_gallery = article.select('.as24-carousel__item img')
-                        for img in alt_gallery:
-                            img_url = img.get('data-src') or img.get('src')
-                            if img_url:
-                                if not img_url.startswith('http'):
-                                    img_url = f"https:{img_url}"
-                                img_url = img_url.replace('/250x188.webp', '_6.jpg')
-                                img_url = img_url.replace('/250x188', '_6.jpg')
-                                images.append(img_url)
+                            images.append(img_url)
+                            st.write(f"Debug: URL immagine processato: {img_url}")
 
-                    # Prezzi
+                    # Estrazione prezzi
                     price_section = article.select_one('[data-testid="price-section"]')
                     prices = {
                         'original_price': None,
@@ -155,10 +153,10 @@ class AutoTracker:
                         superdeal = price_section.select_one('.dp-listing-item__superdeal-container')
                         if superdeal:
                             original_price_elem = superdeal.select_one('.dp-listing-item__superdeal-strikethrough div')
+                            discounted_price_elem = superdeal.select_one('.dp-listing-item__superdeal-highlight-price-span')
+                            
                             if original_price_elem:
                                 prices['original_price'] = self._extract_price(original_price_elem.text)
-                            
-                            discounted_price_elem = superdeal.select_one('.dp-listing-item__superdeal-highlight-price-span')
                             if discounted_price_elem:
                                 prices['discounted_price'] = self._extract_price(discounted_price_elem.text)
                             prices['has_discount'] = True
@@ -167,7 +165,7 @@ class AutoTracker:
                             if regular_price_elem:
                                 prices['original_price'] = self._extract_price(regular_price_elem.text)
 
-                    # Dettagli veicolo
+                    # Estrazione dettagli veicolo
                     details = {
                         'mileage': None,
                         'registration': None,
@@ -180,6 +178,7 @@ class AutoTracker:
                     details_items = article.select('.dp-listing-item__detail-item')
                     for item in details_items:
                         text = item.text.strip()
+                        
                         # Chilometraggio
                         if text.endswith('km'):
                             try:
@@ -187,23 +186,28 @@ class AutoTracker:
                                 details['mileage'] = int(km_value)
                             except ValueError:
                                 st.write(f"⚠️ Non riesco a convertire il chilometraggio: {text}")
+                        
                         # Immatricolazione
                         elif '/' in text and len(text) <= 8:
                             details['registration'] = text
+                        
                         # Potenza
                         elif 'CV' in text or 'KW' in text:
                             details['power'] = text
+                        
                         # Alimentazione
                         elif any(fuel in text.lower() for fuel in ['benzina', 'diesel', 'elettrica', 'ibrida', 'gpl', 'metano']):
                             details['fuel'] = text
+                        
                         # Cambio
                         elif any(trans in text.lower() for trans in ['manuale', 'automatico']):
                             details['transmission'] = text
+                        
                         # Consumi
                         elif 'l/100' in text or 'kwh/100' in text:
                             details['consumption'] = text
 
-                    # Equipaggiamenti
+                    # Estrazione equipaggiamenti
                     equipment = []
                     equip_list = article.select('.dp-listing-item__equipment-list li')
                     for item in equip_list:
@@ -213,14 +217,13 @@ class AutoTracker:
                     listing = {
                         'id': listing_id,
                         'plate': plate,
-                        'title': title,
-                        'version': version,
+                        'title': full_title,
+                        'url': url,
                         'original_price': prices['original_price'],
                         'discounted_price': prices['discounted_price'],
                         'has_discount': prices['has_discount'],
                         'dealer_id': dealer_id,
                         'image_urls': images,
-                        'url': url,
                         'mileage': details['mileage'],
                         'registration': details['registration'],
                         'power': details['power'],
@@ -231,18 +234,23 @@ class AutoTracker:
                         'scrape_date': datetime.now(),
                         'active': True
                     }
-                    
-                    # Validazione immagini prima di aggiungere l'annuncio
+
+                    # Validazione immagini migliorata
                     valid_images = []
                     for img_url in images:
-                        if self.validate_image_url(img_url):
-                            valid_images.append(img_url)
-                        else:
-                            st.write(f"Debug: Immagine non valida scartata: {img_url}")
-                    
+                        try:
+                            response = requests.head(img_url, timeout=5)
+                            if response.status_code == 200:
+                                valid_images.append(img_url)
+                            else:
+                                st.write(f"Debug: Immagine non accessibile: {img_url} (Status: {response.status_code})")
+                        except Exception as e:
+                            st.write(f"Debug: Errore validazione immagine {img_url}: {str(e)}")
+                            continue
+
                     listing['image_urls'] = valid_images
                     listings.append(listing)
-                    st.write(f"✅ Annuncio processato: {title}")
+                    st.write(f"✅ Annuncio processato: {full_title}")
                     
                 except Exception as e:
                     st.error(f"❌ Errore nel parsing dell'annuncio: {str(e)}")
