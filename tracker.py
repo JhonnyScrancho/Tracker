@@ -149,19 +149,18 @@ class AutoTracker:
                         'fuel': None
                     }
                     
-                    for item in article.select('.dp-listing-item__detail-item'):
+                    for item in article.select('.dp-listing-item__detail-item--hasData'):
                         text = item.text.strip()
-                        # Cerchiamo specificamente il formato dei km (es: "51.188 km")
                         if 'km' in text.lower():
                             try:
-                                # Estraiamo solo i numeri e rimuoviamo i punti
-                                km_text = ''.join(c for c in text if c.isdigit())
+                                # Rimuove "km" e spazi, poi converte eliminando i punti
+                                km_text = text.lower().replace('km', '').replace('.', '').strip()
                                 details['mileage'] = int(km_text) if km_text else None
                             except ValueError:
                                 st.write(f"⚠️ Non riesco a convertire il chilometraggio: {text}")
-                        elif '/' in text and len(text) <= 8:  # Data immatricolazione
+                        elif '/' in text and len(text) <= 8:
                             details['registration'] = text
-                        elif 'CV' in text or 'KW' in text:  # Potenza
+                        elif 'CV' in text or 'KW' in text:
                             details['power'] = text
                         elif any(fuel in text.lower() for fuel in ['benzina', 'diesel', 'elettrica', 'ibrida', 'gpl', 'metano']):
                             details['fuel'] = text
