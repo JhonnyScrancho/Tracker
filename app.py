@@ -201,12 +201,18 @@ def main():
                         cols = st.columns([2, 3])
                         
                         with cols[0]:
-                            if listing.get('image_urls'):
-                                st.image(
-                                    listing['image_urls'][0],
-                                    use_column_width=True,
-                                    class_="car-image"
-                                )
+                            if listing.get('image_urls') and len(listing['image_urls']) > 0:
+                                try:
+                                    # Rimuovi il parametro class_ che non è supportato
+                                    st.image(
+                                        listing['image_urls'][0],
+                                        use_column_width=True
+                                    )
+                                except Exception as e:
+                                    st.error(f"Errore nel caricamento dell'immagine: {str(e)}")
+                                    st.write(f"URL immagine problematico: {listing['image_urls'][0]}")
+                            else:
+                                st.write("Nessuna immagine disponibile")
                         
                         with cols[1]:
                             st.markdown(f"### {listing['title']}")
