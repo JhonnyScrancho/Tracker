@@ -1,6 +1,6 @@
 from firebase_admin import credentials, initialize_app, firestore
 from bs4 import BeautifulSoup
-import requests
+from requests_html import HTMLSession # type: ignore
 from datetime import datetime
 import streamlit as st
 import pandas as pd
@@ -27,7 +27,7 @@ class AutoTracker:
             cred = credentials.Certificate(cred_dict)
             initialize_app(cred)
         self.db = firestore.client()
-        self.session = requests.Session()
+        self.session = HTMLSession()
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             'Accept-Language': 'it-IT,it;q=0.9',
@@ -71,10 +71,10 @@ class AutoTracker:
         
         try:
             st.write("📥 Scaricando la pagina...")
-            response = requests.get(dealer_url, headers=self.session.headers, timeout=30)
-            response.raise_for_status()
+            response = self.session.get(dealer_url)
+            response.html.render(timeout=30, sleep=3)
             
-            soup = BeautifulSoup(response.text, 'lxml')
+            soup = BeautifulSoup(response.html.html, 'lxml')
             
             total_results = soup.select_one(".dp-list__title__count")
             if total_results:
@@ -154,9 +154,9 @@ class AutoTracker:
                         for img_url in img_urls:
                             if img_url and 'autoscout24.net' in img_url:
                                 # Estrai l'URL base rimuovendo le dimensioni e la conversione webp
-                                base_img_url = re.sub(r'/\d+x\d+\.(webp|jpg)', '', img_url)
-                                # Assicurati che l'URL finisca con .jpg
-                                if not base_img_url.endswith('.jpg'):
+                                base_img_url = re.sub(r'/\d+x\d+\.(webp|jpg|jpeg|png)', '', img_url)
+                                # Assicurati che l'URL finisca con l'estensione corretta
+                                if not re.search(r'\.(jpg|jpeg|png)$', base_img_url):
                                     base_img_url += '.jpg'
 
                                 if base_img_url not in images:
@@ -168,14 +168,14 @@ class AutoTracker:
                         st.write("No images found in gallery, trying HTML search")
                         html_content = str(article)
                         # Pattern migliorato per catturare diversi formati di URL
-                        img_pattern = r'https://prod\.pictures\.autoscout24\.net/listing-images/[a-f0-9-]+_[a-f0-9-]+\.[a-z0-9]+(?:/[^"\'\s]*)?'
+                        img_pattern = r'https://prod\.pictures\.autoscout24\.net/listing-images/[a-f0-9-]+_[a-f0-9-]+\.(jpg|jpeg|png)(?:/[^"\'\s]*)?'
                         matches = re.finditer(img_pattern, html_content)
 
                         for match in matches:
                             img_url = match.group(0)
                             # Normalizza l'URL dell'immagine
-                            base_img_url = re.sub(r'/\d+x\d+\.(webp|jpg)', '', img_url)
-                            if not base_img_url.endswith('.jpg'):
+                            base_img_url = re.sub(r'/\d+x\d+\.(webp|jpg|jpeg|png)', '', img_url)
+                            if not re.search(r'\.(jpg|jpeg|png)$', base_img_url):
                                 base_img_url += '.jpg'
 
                             if base_img_url not in images:
@@ -183,7 +183,6 @@ class AutoTracker:
                                 st.write(f"Added image from HTML: {base_img_url}")
 
                     st.write(f"Debug: Found {len(images)} total images for listing {listing_id}")
-
 
                     # ESTRAZIONE PREZZI MIGLIORATA
                     price_section = article.select_one('[data-testid="price-section"]')
@@ -292,10 +291,7 @@ class AutoTracker:
                     
             st.success(f"🎉 Scraping completato. Trovati {len(listings)} annunci validi")
             return listings
-            
-        except requests.RequestException as e:
-            st.error(f"❌ Errore nella richiesta HTTP: {str(e)}")
-            return []
+        
         except Exception as e:
             st.error(f"❌ Errore imprevisto: {str(e)}")
             return []
