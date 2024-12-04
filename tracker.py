@@ -131,92 +131,91 @@ class AutoTracker:
 
                     # ESTRAZIONE IMMAGINI MIGLIORATA
                     images = []
-                    # Cerca tutte le sorgenti di immagini nel gallery
                     try:
-                        with st.status("🔍 Analisi immagini in corso...", expanded=False) as status:
-                            status.write("Cercando sorgenti immagini nella gallery...")
-                            gallery_sources = article.select(
-                                'picture.dp-new-gallery__picture source[srcset], '
-                                'picture.dp-new-gallery__picture source[data-srcset], '
-                                'img.dp-new-gallery__img[src], '
-                                'img.dp-new-gallery__img[data-src]'
-                            )
-                            status.write(f"Trovate {len(gallery_sources)} sorgenti nella gallery")
+                        st.write("🔍 Analisi immagini in corso...")
+                        # Cerca tutte le sorgenti di immagini nel gallery
+                        gallery_sources = article.select(
+                            'picture.dp-new-gallery__picture source[srcset], '
+                            'picture.dp-new-gallery__picture source[data-srcset], '
+                            'img.dp-new-gallery__img[src], '
+                            'img.dp-new-gallery__img[data-src]'
+                        )
+                        st.write(f"Trovate {len(gallery_sources)} sorgenti nella gallery")
 
-                            for source in gallery_sources:
-                                try:
-                                    srcset = source.get('srcset') or source.get('data-srcset')
-                                    src = source.get('src') or source.get('data-src')
-                                    img_urls = []
+                        for source in gallery_sources:
+                            try:
+                                srcset = source.get('srcset') or source.get('data-srcset')
+                                src = source.get('src') or source.get('data-src')
+                                img_urls = []
 
-                                    if srcset:
-                                        # Gestisce multipli URL in srcset
-                                        img_urls = [s.strip().split(' ')[0] for s in srcset.split(',')]
-                                    elif src:
-                                        img_urls = [src]
+                                if srcset:
+                                    # Gestisce multipli URL in srcset
+                                    img_urls = [s.strip().split(' ')[0] for s in srcset.split(',')]
+                                elif src:
+                                    img_urls = [src]
 
-                                    for img_url in img_urls:
-                                        if img_url and 'autoscout24.net' in img_url:
-                                            # Estrai l'URL base rimuovendo le dimensioni e la conversione webp
-                                            base_img_url = re.sub(r'/\d+x\d+\.(webp|jpg)', '', img_url)
-                                            # Assicurati che l'URL finisca con .jpg
-                                            if not base_img_url.endswith('.jpg'):
-                                                base_img_url += '.jpg'
-
-                                            if base_img_url not in images:
-                                                images.append(base_img_url)
-                                                status.write(f"✅ Aggiunta immagine: {base_img_url}")
-
-                                except Exception as e:
-                                    status.write(f"⚠️ Errore nel processare una sorgente: {str(e)}")
-                                    continue
-
-                            # Se ancora non trova immagini, cerca nel HTML
-                            if not images:
-                                status.write("Nessuna immagine trovata nella gallery, ricerca nel HTML...")
-                                html_content = str(article)
-                                # Pattern migliorato per catturare sia URL webp che jpg
-                                img_pattern = r'https://prod\.pictures\.autoscout24\.net/listing-images/[a-f0-9-]+_[a-f0-9-]+\.(?:jpg|webp)(?:/[^"\'\s]*)?'
-                                matches = re.finditer(img_pattern, html_content)
-                                
-                                for match in matches:
-                                    try:
-                                        img_url = match.group(0)
-                                        # Normalizza l'URL dell'immagine
+                                for img_url in img_urls:
+                                    if img_url and 'autoscout24.net' in img_url:
+                                        # Estrai l'URL base rimuovendo le dimensioni e la conversione webp
                                         base_img_url = re.sub(r'/\d+x\d+\.(webp|jpg)', '', img_url)
+                                        # Assicurati che l'URL finisca con .jpg
                                         if not base_img_url.endswith('.jpg'):
                                             base_img_url += '.jpg'
-                                            
+
                                         if base_img_url not in images:
                                             images.append(base_img_url)
-                                            status.write(f"✅ Aggiunta immagine da HTML: {base_img_url}")
-                                    except Exception as e:
-                                        status.write(f"⚠️ Errore nel processare URL dal HTML: {str(e)}")
-                                        continue
+                                            st.write(f"✅ Aggiunta immagine: {base_img_url}")
 
-                            # Verifica validità URLs
-                            status.write("Verifica validità URLs...")
-                            valid_images = []
-                            for img_url in images:
+                            except Exception as e:
+                                st.write(f"⚠️ Errore nel processare una sorgente: {str(e)}")
+                                continue
+
+                        # Se ancora non trova immagini, cerca nel HTML
+                        if not images:
+                            st.write("Nessuna immagine trovata nella gallery, ricerca nel HTML...")
+                            html_content = str(article)
+                            # Pattern migliorato per catturare sia URL webp che jpg
+                            img_pattern = r'https://prod\.pictures\.autoscout24\.net/listing-images/[a-f0-9-]+_[a-f0-9-]+\.(?:jpg|webp)(?:/[^"\'\s]*)?'
+                            matches = re.finditer(img_pattern, html_content)
+                            
+                            for match in matches:
                                 try:
-                                    response = requests.head(img_url, timeout=5)
-                                    if response.status_code == 200:
-                                        valid_images.append(img_url)
-                                        status.write(f"✅ URL valido: {img_url}")
-                                    else:
-                                        status.write(f"❌ URL non valido ({response.status_code}): {img_url}")
+                                    img_url = match.group(0)
+                                    # Normalizza l'URL dell'immagine
+                                    base_img_url = re.sub(r'/\d+x\d+\.(webp|jpg)', '', img_url)
+                                    if not base_img_url.endswith('.jpg'):
+                                        base_img_url += '.jpg'
+                                        
+                                    if base_img_url not in images:
+                                        images.append(base_img_url)
+                                        st.write(f"✅ Aggiunta immagine da HTML: {base_img_url}")
                                 except Exception as e:
-                                    status.write(f"❌ Errore verifica URL {img_url}: {str(e)}")
+                                    st.write(f"⚠️ Errore nel processare URL dal HTML: {str(e)}")
                                     continue
 
-                            images = valid_images  # Aggiorna lista con solo URLs validi
-                            
-                            if images:
-                                status.update(label="✅ Analisi immagini completata", state="complete")
-                            else:
-                                status.update(label="⚠️ Nessuna immagine trovata", state="error")
+                        # Verifica validità URLs
+                        st.write("Verifica validità URLs...")
+                        valid_images = []
+                        for img_url in images:
+                            try:
+                                response = requests.head(img_url, timeout=5)
+                                if response.status_code == 200:
+                                    valid_images.append(img_url)
+                                    st.write(f"✅ URL valido: {img_url}")
+                                else:
+                                    st.write(f"❌ URL non valido ({response.status_code}): {img_url}")
+                            except Exception as e:
+                                st.write(f"❌ Errore verifica URL {img_url}: {str(e)}")
+                                continue
 
-                            status.write(f"📊 Totale immagini valide trovate: {len(images)}")
+                        images = valid_images  # Aggiorna lista con solo URLs validi
+                        
+                        if images:
+                            st.write("✅ Analisi immagini completata")
+                        else:
+                            st.write("⚠️ Nessuna immagine trovata")
+
+                        st.write(f"📊 Totale immagini valide trovate: {len(images)}")
 
                     except Exception as e:
                         st.error(f"❌ Errore durante l'estrazione delle immagini: {str(e)}")
@@ -227,7 +226,6 @@ class AutoTracker:
                         st.warning(f"⚠️ Nessuna immagine trovata per l'annuncio {listing_id}")
                     else:
                         st.success(f"✅ Trovate {len(images)} immagini per l'annuncio {listing_id}")
-
                     # ESTRAZIONE PREZZI MIGLIORATA
                     price_section = article.select_one('[data-testid="price-section"]')
                     prices = {
