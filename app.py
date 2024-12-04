@@ -76,17 +76,18 @@ def main():
             with col1:
                 if st.button("🔄 Aggiorna", key=f"update_{dealer['id']}"):
                     with st.expander("📝 Log Aggiornamento", expanded=False):
-                        with st.status("⏳ Aggiornamento in corso...", expanded=True) as status:
-                            try:
+                        progress_placeholder = st.empty()
+                        try:
+                            with st.spinner("⏳ Aggiornamento in corso..."):
                                 listings = tracker.scrape_dealer(dealer['url'])
                                 if listings:
                                     tracker.save_listings(listings)
                                     tracker.mark_inactive_listings(dealer['id'], [l['id'] for l in listings])
-                                    status.update(label="✅ Aggiornamento completato!", state="complete")
+                                    progress_placeholder.success("✅ Aggiornamento completato!")
                                 else:
-                                    status.update(label="⚠️ Nessun annuncio trovato", state="error")
-                            except Exception as e:
-                                status.update(label=f"❌ Errore: {str(e)}", state="error")
+                                    progress_placeholder.warning("⚠️ Nessun annuncio trovato")
+                        except Exception as e:
+                            progress_placeholder.error(f"❌ Errore: {str(e)}")
             
             with col2:
                 remove_button = st.button("❌ Rimuovi", key=f"remove_{dealer['id']}")
