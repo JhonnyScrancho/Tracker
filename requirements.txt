@@ -2,7 +2,7 @@
 streamlit==1.31.0
 firebase-admin==6.4.0
 pandas==2.1.4
-opencv-python>=4.8.0  # Aggiungi questa riga
+opencv-python-headless>=4.8.0
 
 # Web scraping
 requests==2.31.0
