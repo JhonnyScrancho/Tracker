@@ -365,3 +365,31 @@ class AutoTracker:
             'active': False,
             'removed_at': datetime.now()
         })
+
+    def get_active_listings(self, dealer_id: str):
+        """
+        Recupera gli annunci attivi di un concessionario
+        
+        Args:
+            dealer_id: ID del concessionario
+            
+        Returns:
+            Lista di annunci attivi
+        """
+        try:
+            # Query per gli annunci attivi del dealer specifico
+            listings_ref = self.db.collection('listings')
+            query = listings_ref.where('dealer_id', '==', dealer_id).where('active', '==', True)
+            
+            # Esegui la query e converti i risultati in lista di dizionari
+            listings = []
+            for doc in query.stream():
+                listing_data = doc.to_dict()
+                listing_data['id'] = doc.id  # Aggiungi l'ID del documento
+                listings.append(listing_data)
+                
+            return listings
+            
+        except Exception as e:
+            st.error(f"❌ Errore nel recupero degli annunci: {str(e)}")
+            return []    
