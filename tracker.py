@@ -111,10 +111,10 @@ class AutoTracker:
 
                     # Immagini
                     images = []
-                    img_elements = article.select('.dp-new-gallery__img')
+                    img_elements = article.select('.dp-new-gallery__picture source')
                     for img in img_elements:
-                        img_url = img.get('data-src') or img.get('src')
-                        if img_url:
+                        img_url = img.get('srcset', '').split(' ')[0]  # Prendiamo il primo URL dal srcset
+                        if img_url and img_url not in images:
                             images.append(img_url)
 
                     # Prezzi
@@ -151,16 +151,17 @@ class AutoTracker:
                     
                     for item in article.select('.dp-listing-item__detail-item'):
                         text = item.text.strip()
+                        # Cerchiamo specificamente il formato dei km (es: "51.188 km")
                         if 'km' in text.lower():
                             try:
-                                km_text = text.replace('km', '').strip()
-                                km_text = km_text.replace('.', '')
-                                details['mileage'] = int(km_text)
+                                # Estraiamo solo i numeri e rimuoviamo i punti
+                                km_text = ''.join(c for c in text if c.isdigit())
+                                details['mileage'] = int(km_text) if km_text else None
                             except ValueError:
                                 st.write(f"⚠️ Non riesco a convertire il chilometraggio: {text}")
-                        elif '/' in text and len(text) <= 8:
+                        elif '/' in text and len(text) <= 8:  # Data immatricolazione
                             details['registration'] = text
-                        elif 'CV' in text or 'KW' in text:
+                        elif 'CV' in text or 'KW' in text:  # Potenza
                             details['power'] = text
                         elif any(fuel in text.lower() for fuel in ['benzina', 'diesel', 'elettrica', 'ibrida', 'gpl', 'metano']):
                             details['fuel'] = text
