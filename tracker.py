@@ -132,48 +132,58 @@ class AutoTracker:
                     # ESTRAZIONE IMMAGINI MIGLIORATA
                     images = []
                     # Cerca tutte le sorgenti di immagini nel gallery
-                    gallery_sources = article.select('picture.dp-new-gallery__picture source[srcset], img.dp-new-gallery__img[src]')
-                    st.write(f"Found {len(gallery_sources)} gallery sources")
+                    gallery_sources = article.select(
+                        'picture.dp-new-gallery__picture source[srcset], '
+                        'picture.dp-new-gallery__picture source[data-srcset], '
+                        'img.dp-new-gallery__img[src], '
+                        'img.dp-new-gallery__img[data-src]'
+                    )
+                    st.write(f"Found {len(gallery_sources)} gallery sources in listing {listing_id}")
 
                     for source in gallery_sources:
-                        # Controlla sia srcset che src
-                        if source.get('srcset'):
-                            # Prende il primo URL dal srcset (di solito il più grande)
-                            img_url = source['srcset'].split(',')[0].split(' ')[0]
-                        else:
-                            img_url = source.get('src')
-                            
-                        if img_url and 'autoscout24.net' in img_url:
-                            # Estrai l'URL base rimuovendo le dimensioni e la conversione webp
-                            base_img_url = re.sub(r'/\d+x\d+\.(webp|jpg)', '', img_url)
-                            # Assicurati che l'URL finisca con .jpg
-                            if not base_img_url.endswith('.jpg'):
-                                base_img_url += '.jpg'
-                            
-                            if base_img_url not in images:
-                                images.append(base_img_url)
-                                st.write(f"Added image: {base_img_url}")
+                        srcset = source.get('srcset') or source.get('data-srcset')
+                        src = source.get('src') or source.get('data-src')
+                        img_urls = []
+
+                        if srcset:
+                            # Gestisce multipli URL in srcset
+                            img_urls = [s.strip().split(' ')[0] for s in srcset.split(',')]
+                        elif src:
+                            img_urls = [src]
+
+                        for img_url in img_urls:
+                            if img_url and 'autoscout24.net' in img_url:
+                                # Estrai l'URL base rimuovendo le dimensioni e la conversione webp
+                                base_img_url = re.sub(r'/\d+x\d+\.(webp|jpg)', '', img_url)
+                                # Assicurati che l'URL finisca con .jpg
+                                if not base_img_url.endswith('.jpg'):
+                                    base_img_url += '.jpg'
+
+                                if base_img_url not in images:
+                                    images.append(base_img_url)
+                                    st.write(f"Added image: {base_img_url}")
 
                     # Se ancora non trova immagini, cerca nel HTML
                     if not images:
                         st.write("No images found in gallery, trying HTML search")
                         html_content = str(article)
-                        # Pattern migliorato per catturare sia URL webp che jpg
-                        img_pattern = r'https://prod\.pictures\.autoscout24\.net/listing-images/[a-f0-9-]+_[a-f0-9-]+\.(?:jpg|webp)(?:/[^"\'\s]*)?'
+                        # Pattern migliorato per catturare diversi formati di URL
+                        img_pattern = r'https://prod\.pictures\.autoscout24\.net/listing-images/[a-f0-9-]+_[a-f0-9-]+\.[a-z0-9]+(?:/[^"\'\s]*)?'
                         matches = re.finditer(img_pattern, html_content)
-                        
+
                         for match in matches:
                             img_url = match.group(0)
                             # Normalizza l'URL dell'immagine
                             base_img_url = re.sub(r'/\d+x\d+\.(webp|jpg)', '', img_url)
                             if not base_img_url.endswith('.jpg'):
                                 base_img_url += '.jpg'
-                                
+
                             if base_img_url not in images:
                                 images.append(base_img_url)
                                 st.write(f"Added image from HTML: {base_img_url}")
 
                     st.write(f"Debug: Found {len(images)} total images for listing {listing_id}")
+
 
                     # ESTRAZIONE PREZZI MIGLIORATA
                     price_section = article.select_one('[data-testid="price-section"]')
