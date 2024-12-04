@@ -133,26 +133,34 @@ class AutoTracker:
                     if url:
                         images = self.get_listing_images(url)
 
-                    # Estrazione targa
+                    # Estrazione targa con approccio sequenziale
                     plate = None
-
-                    # Prima prova a trovare la targa nelle immagini se il detector è disponibile
                     if plate_detector and images:
-                        try:
-                            ocr_plate = plate_detector.detect_plates_from_listing(images)
-                            if ocr_plate:
-                                plate = ocr_plate
-                        except Exception as e:
-                            st.warning(f"⚠️ Errore OCR targa: {str(e)}")
+                        st.write("🔍 Analisi targhe nelle immagini...")
+                        for idx, img_url in enumerate(images):
+                            try:
+                                st.write(f"Analisi immagine {idx + 1}...")
+                                ocr_plate = plate_detector.detect_plate_from_url(img_url)
+                                if ocr_plate:
+                                    plate = ocr_plate
+                                    st.write(f"✅ Targa trovata: {plate}")
+                                    break  # Esce dal ciclo appena trova una targa valida
+                            except Exception as e:
+                                st.write(f"⚠️ Errore OCR immagine {idx + 1}: {str(e)}")
+                                continue
 
-                    # Se non trova la targa nelle immagini, prova con URL e titolo
+                    # Se l'OCR non ha trovato nulla, prova con i metodi alternativi
                     if not plate:
+                        st.write("Ricerca targa in URL e titolo...")
                         if url:
                             plate = self._extract_plate(url)
                         if not plate and full_title:
                             plate = self._extract_plate(full_title)
                         if not plate:
                             plate = listing_id  # Usa l'ID come fallback finale
+                            st.write("⚠️ Nessuna targa trovata, usando ID come fallback")
+                        else:
+                            st.write(f"✅ Targa trovata da testo: {plate}")
 
                     # ESTRAZIONE PREZZI MIGLIORATA
                     price_section = article.select_one('[data-testid="price-section"]')
