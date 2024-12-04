@@ -135,47 +135,38 @@ class AutoTracker:
                     if url:
                         images = self.get_listing_images(url)
 
-                    # Estrazione targa con approccio sequenziale ottimizzato
+                    # Estrazione targa semplificata con Azure
                     plate = None
                     if images:  # Se abbiamo trovato delle immagini
-                        detector = PlateDetector()  # Inizializza il detector una sola volta
+                        detector = PlateDetector()
                         
-                        with st.spinner("🔍 Analisi targhe nelle immagini..."):
-                            for idx, img_url in enumerate(images):
+                        with st.spinner("🔍 Analisi targhe..."):
+                            for img_url in images:
                                 try:
-                                    plate = detector.detect_with_retry(img_url)
-                                    if plate:
-                                        st.success(f"✅ Targa rilevata: {plate}")
-                                        break
-                                except Exception as e:
+                                    result = detector.client.read(url=img_url, raw=True)
+                                    operation_location = result.headers["Operation-Location"]
+                                    operation_id = operation_location.split("/")[-1]
+
+                                    # Attendi il risultato
+                                    while True:
+                                        get_text_result = detector.client.get_read_result(operation_id)
+                                        if get_text_result.status not in ['notStarted', 'running']:
+                                            break
+                                        time.sleep(1)
+
+                                    if get_text_result.status == OperationStatusCodes.succeeded:
+                                        for text_result in get_text_result.analyze_result.read_results:
+                                            for line in text_result.lines:
+                                                if plate := detector._validate_plate(line.text):
+                                                    break
+                                        if plate:
+                                            break
+                                except Exception:
                                     continue
 
-                        # Se OCR fallisce, prova estrazione da titolo/URL silenziosamente
+                        # Fallback su estrazione da testo
                         if not plate:
-                            if url:
-                                plate = self._extract_plate(url)
-                            if not plate and full_title:
-                                plate = self._extract_plate(full_title)
-
-                        # Input manuale SOLO se necessario e senza troppi feedback
-                        if not plate:
-                            col1, col2 = st.columns([3, 1])
-                            with col1:
-                                manual_plate = st.text_input(
-                                    "Inserisci targa",
-                                    key=f"manual_plate_{listing_id}",
-                                    help="Formato: AA000BB"
-                                ).upper()
-                            with col2:
-                                if st.button("✅", key=f"confirm_plate_{listing_id}"):
-                                    if manual_plate:
-                                        plate = manual_plate
-                                    else:
-                                        st.error("Targa non valida")
-
-                    # Fallback finale silenzioso
-                    if not plate:
-                        plate = listing_id
+                            plate = self._extract_plate(url) or self._extract_plate(full_title) or listing_id
 
                     # ESTRAZIONE PREZZI
                     price_section = article.select_one('[data-testid="price-section"]')
