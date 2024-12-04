@@ -221,36 +221,36 @@ class AutoTracker:
             return None
 
     def save_listings(self, listings):
+        """Salva o aggiorna gli annunci"""
         batch = self.db.batch()
         timestamp = datetime.now()
-
+        
         for listing in listings:
             doc_ref = self.db.collection('listings').document(listing['id'])
             
-            # Aggiungi timestamp ultimo aggiornamento
-            listing['last_seen'] = timestamp
+            # Normalizza i dati prima del salvataggio
+            normalized_listing = {
+                'id': listing['id'],
+                'active': True,
+                'dealer_id': listing['dealer_id'],
+                'title': listing.get('title', ''),
+                'original_price': float(listing.get('original_price', 0)),
+                'discounted_price': float(listing.get('discounted_price', 0)) if listing.get('discounted_price') else None,
+                'has_discount': bool(listing.get('has_discount', False)),
+                'mileage': int(listing.get('mileage', 0)) if listing.get('mileage') else None,
+                'registration': listing.get('registration'),
+                'fuel': listing.get('fuel'),
+                'power': listing.get('power'),
+                'image_urls': listing.get('image_urls', []),
+                'last_seen': timestamp
+            }
             
-            # Controlla se è un nuovo inserimento
+            # Se è un nuovo annuncio, aggiungi data creazione
             doc = doc_ref.get()
             if not doc.exists:
-                listing['first_seen'] = timestamp
+                normalized_listing['first_seen'] = timestamp
             
-            batch.set(doc_ref, listing, merge=True)
-            
-            # Registra evento nello storico
-            history_ref = self.db.collection('history').document()
-            history_data = {
-                'listing_id': listing['id'],
-                'dealer_id': listing['dealer_id'],
-                'original_price': listing['original_price'],
-                'discounted_price': listing['discounted_price'],
-                'has_discount': listing['has_discount'],
-                'date': timestamp,
-                'event': 'update' if doc.exists else 'new'
-            }
-            batch.set(history_ref, history_data)
-
-        batch.commit()
+            batch.set(doc_ref, normalized_listing, merge=True)
 
     def mark_inactive_listings(self, dealer_id: str, active_ids: list):
         listings_ref = self.db.collection('listings')
