@@ -1,24 +1,24 @@
-from azure.cognitiveservices.vision.computervision import ComputerVisionClient
-from azure.cognitiveservices.vision.computervision.models import OperationStatusCodes
-from msrest.authentication import CognitiveServicesCredentials
-import requests
+import time
+import boto3
 import re
-import streamlit as st
 from typing import Optional
 from datetime import datetime
-import time
+import streamlit as st
 
 class PlateDetector:
     def __init__(self):
-        """Inizializza il detector con Azure Computer Vision"""
+        """Inizializza il detector con Amazon Rekognition"""
         try:
-            self.client = ComputerVisionClient(
-                endpoint=st.secrets["azure"]["endpoint"],
-                credentials=CognitiveServicesCredentials(st.secrets["azure"]["key"])
+            # Inizializza client Rekognition con credenziali da Streamlit secrets
+            self.client = boto3.client(
+                'rekognition',
+                aws_access_key_id=st.secrets["aws"]["access_key_id"],
+                aws_secret_access_key=st.secrets["aws"]["secret_access_key"],
+                region_name=st.secrets["aws"]["region"]
             )
             self.results_cache = {}
         except Exception as e:
-            st.error(f"Errore inizializzazione Azure Vision: {str(e)}")
+            st.error(f"Errore inizializzazione Rekognition: {str(e)}")
             self.client = None
 
     def _validate_plate(self, text: str) -> Optional[str]:
@@ -47,7 +47,7 @@ class PlateDetector:
         return None
 
     def detect_plate_from_url(self, image_url: str) -> Optional[str]:
-        """Rileva targa usando Azure Computer Vision"""
+        """Rileva targa usando Amazon Rekognition"""
         try:
             # Check cache
             if image_url in self.results_cache:
@@ -57,28 +57,24 @@ class PlateDetector:
                     if age < 3600:  # Cache valida per 1 ora
                         return cached['plate']
 
-            # Analisi diretta con Azure
-            result = self.client.read(url=image_url, raw=True)
-            operation_location = result.headers["Operation-Location"]
-            operation_id = operation_location.split("/")[-1]
+            # Scarica immagine
+            import requests
+            response = requests.get(image_url)
+            image_bytes = response.content
 
-            # Attendi il completamento
-            while True:
-                get_text_result = self.client.get_read_result(operation_id)
-                if get_text_result.status not in ['notStarted', 'running']:
-                    break
-                time.sleep(1)
-
-            if get_text_result.status == OperationStatusCodes.succeeded:
-                for text_result in get_text_result.analyze_result.read_results:
-                    for line in text_result.lines:
-                        if plate := self._validate_plate(line.text):
-                            # Salva in cache
-                            self.results_cache[image_url] = {
-                                'plate': plate,
-                                'timestamp': datetime.now()
-                            }
-                            return plate
+            # Analisi con Rekognition
+            response = self.client.detect_text(Image={'Bytes': image_bytes})
+            
+            # Processa risultati
+            for detection in response['TextDetections']:
+                if detection['Type'] == 'LINE':  # Cerca solo linee di testo complete
+                    if plate := self._validate_plate(detection['DetectedText']):
+                        # Salva in cache
+                        self.results_cache[image_url] = {
+                            'plate': plate,
+                            'timestamp': datetime.now()
+                        }
+                        return plate
 
             return None
             
