@@ -135,7 +135,7 @@ class AutoTracker:
                     if url:
                         images = self.get_listing_images(url)
 
-                    # Estrazione targa semplificata con Azure
+                    # Estrazione targa semplificata
                     plate = None
                     if images:
                         with st.spinner("🔍 Analisi targhe..."):
@@ -146,7 +146,7 @@ class AutoTracker:
                                 except Exception as e:
                                     st.warning(f"⚠️ Errore analisi immagine: {str(e)}")
                                     continue
-                    
+
                     # Fallback su estrazione da testo se non trovata nelle immagini
                     if not plate:
                         plate = self._extract_plate(url) or self._extract_plate(full_title) or listing_id

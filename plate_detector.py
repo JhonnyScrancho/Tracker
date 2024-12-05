@@ -1,25 +1,29 @@
 import time
-import boto3
-import re
 from typing import Optional
 from datetime import datetime
 import streamlit as st
+import requests
+import cv2
+import numpy as np
+from openalpr import Alpr
 
-class PlateDetector:
+class PlateDetectorALPR:
     def __init__(self):
-        """Inizializza il detector con Amazon Rekognition"""
+        """Inizializza il detector con OpenALPR"""
         try:
-            # Inizializza client Rekognition con credenziali da Streamlit secrets
-            self.client = boto3.client(
-                'rekognition',
-                aws_access_key_id=st.secrets["aws"]["access_key_id"],
-                aws_secret_access_key=st.secrets["aws"]["secret_access_key"],
-                region_name=st.secrets["aws"]["region"]
-            )
+            # Inizializza ALPR per targhe europee
+            self.alpr = Alpr("eu", "/etc/openalpr/openalpr.conf", "/usr/share/openalpr/runtime_data")
+            if not self.alpr.is_loaded():
+                raise RuntimeError("Errore nel caricamento di OpenALPR")
+            
+            # Configura per targhe italiane
+            self.alpr.set_top_n(5)
+            self.alpr.set_default_region("it")
+            
             self.results_cache = {}
         except Exception as e:
-            st.error(f"Errore inizializzazione Rekognition: {str(e)}")
-            self.client = None
+            st.error(f"Errore inizializzazione OpenALPR: {str(e)}")
+            self.alpr = None
 
     def _validate_plate(self, text: str) -> Optional[str]:
         """Valida il formato targa italiana"""
@@ -30,6 +34,7 @@ class PlateDetector:
         text = ''.join(c for c in text.upper() if c.isalnum())
         
         # Pattern targa italiana moderna (es. FL694XB)
+        import re
         patterns = [
             r'^[ABCDEFGHJKLMNPRSTVWXYZ]{2}\d{3}[ABCDEFGHJKLMNPRSTVWXYZ]{2}$',  # Standard
             r'^[A-Z]{2}\d{5}$',                                                  # Vecchio formato
@@ -47,7 +52,7 @@ class PlateDetector:
         return None
 
     def detect_plate_from_url(self, image_url: str) -> Optional[str]:
-        """Rileva targa usando Amazon Rekognition"""
+        """Rileva targa usando OpenALPR"""
         try:
             # Check cache
             if image_url in self.results_cache:
@@ -58,23 +63,25 @@ class PlateDetector:
                         return cached['plate']
 
             # Scarica immagine
-            import requests
             response = requests.get(image_url)
-            image_bytes = response.content
-
-            # Analisi con Rekognition
-            response = self.client.detect_text(Image={'Bytes': image_bytes})
+            nparr = np.frombuffer(response.content, np.uint8)
+            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
             
-            # Processa risultati
-            for detection in response['TextDetections']:
-                if detection['Type'] == 'LINE':  # Cerca solo linee di testo complete
-                    if plate := self._validate_plate(detection['DetectedText']):
+            # Analisi con OpenALPR
+            if self.alpr:
+                results = self.alpr.recognize_ndarray(img)
+                if results['results']:
+                    # Prendi il risultato con confidence più alta
+                    best_result = max(results['results'], key=lambda x: x['confidence'])
+                    plate = best_result['plate']
+                    
+                    if validated_plate := self._validate_plate(plate):
                         # Salva in cache
                         self.results_cache[image_url] = {
-                            'plate': plate,
+                            'plate': validated_plate,
                             'timestamp': datetime.now()
                         }
-                        return plate
+                        return validated_plate
 
             return None
             
@@ -95,6 +102,11 @@ class PlateDetector:
                     return None
                 time.sleep(1)
         return None
+
+    def __del__(self):
+        """Cleanup quando l'oggetto viene distrutto"""
+        if hasattr(self, 'alpr') and self.alpr:
+            self.alpr.unload()
 
     def clear_cache(self):
         """Pulisce la cache dei risultati"""
