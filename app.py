@@ -186,4 +186,6 @@ else:
                 st.info("ℹ️ Nessun annuncio attivo")
 
 if __name__ == "__main__":
-    st.runtime.legacy_caching.clear_cache()
+    # Modern way to clear Streamlit cache
+    st.cache_data.clear()
+    st.cache_resource.clear()
