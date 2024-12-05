@@ -15,6 +15,7 @@ from vision_service import VisionService
 
 class AutoTracker:
     def __init__(self):
+        # Firebase initialization
         try:
             firebase_admin.get_app()
         except ValueError:
@@ -31,6 +32,8 @@ class AutoTracker:
             }
             cred = credentials.Certificate(cred_dict)
             initialize_app(cred)
+        
+        # Database and session setup
         self.db = firestore.client()
         self.session = requests.Session()
         self.session.headers.update({
@@ -41,30 +44,20 @@ class AutoTracker:
         self.last_request = 0
         self.delay = 3
         
-        # Inizializzazione sicura del VisionService
+        # Vision Service initialization
         try:
-            # Debug per verificare le chiavi disponibili
-            print("Debug - Available secret keys:", st.secrets.keys())
-            
-            # Prova diverse varianti della chiave
-            api_key = None
-            possible_keys = ['XAI_API_KEY', 'xai_api_key', 'VISION_API_KEY', 'vision_api_key']
-            
-            for key in possible_keys:
-                if key in st.secrets:
-                    api_key = st.secrets[key]
-                    print(f"Found API key with name: {key}")
-                    break
-            
+            # Accesso diretto alla chiave XAI_API_KEY
+            api_key = st.secrets.XAI_API_KEY
             if api_key:
                 self.vision = VisionService(api_key)
                 st.success("✅ Servizio Vision inizializzato correttamente")
+                print(f"Debug - API key trovata e inizializzata: {api_key[:10]}...")
             else:
-                self.vision = None
-                st.error("❌ Chiave API Vision non trovata nelle secrets. Chiavi disponibili: " + ", ".join(st.secrets.keys()))
+                raise ValueError("API key is None")
         except Exception as e:
             self.vision = None
-            st.error(f"❌ Errore inizializzazione Vision: {str(e)}")
+            st.error(f"❌ Errore nell'accesso alla chiave API: {str(e)}")
+            print("Debug - Contenuto secrets:", {k: v[:10] if isinstance(v, str) else v for k, v in st.secrets.items()})
 
     def _wait_rate_limit(self):
         """Implementa rate limiting tra le richieste"""
