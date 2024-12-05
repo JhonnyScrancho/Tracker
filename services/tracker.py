@@ -832,3 +832,52 @@ class AutoTracker:
         except Exception as e:
             st.error(f"❌ Errore nel recupero dello storico: {str(e)}")
             return []    
+        
+    def get_scheduler_config(self):
+        """Recupera la configurazione dello scheduler"""
+        try:
+            doc = self.db.collection('config').document('scheduler').get()
+            if doc.exists:
+                return doc.to_dict()
+            return {
+                'enabled': False,
+                'hour': 1,
+                'minute': 0
+            }
+        except Exception as e:
+            st.error(f"❌ Errore nel recupero configurazione scheduler: {str(e)}")
+            return {
+                'enabled': False,
+                'hour': 1,
+                'minute': 0
+            }
+
+    def save_scheduler_config(self, config: dict):
+        """Salva la configurazione dello scheduler"""
+        try:
+            self.db.collection('config').document('scheduler').set(config, merge=True)
+            
+            # Se l'automazione è abilitata, pianifica il prossimo aggiornamento
+            if config.get('enabled'):
+                self._schedule_next_update(config['hour'], config['minute'])
+                
+        except Exception as e:
+            st.error(f"❌ Errore nel salvataggio configurazione scheduler: {str(e)}")
+
+    def _schedule_next_update(self, hour: int, minute: int):
+        """Pianifica il prossimo aggiornamento automatico"""
+        try:
+            now = datetime.now()
+            next_run = now.replace(hour=hour, minute=minute)
+            
+            # Se l'orario è già passato per oggi, pianifica per domani
+            if next_run < now:
+                next_run = next_run.replace(day=next_run.day + 1)
+                
+            # Salva l'orario del prossimo aggiornamento
+            self.db.collection('config').document('scheduler').update({
+                'next_update': next_run
+            })
+            
+        except Exception as e:
+            st.error(f"❌ Errore nella pianificazione: {str(e)}")    

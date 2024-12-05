@@ -1,3 +1,4 @@
+from datetime import datetime
 import streamlit as st
 import sys
 from pathlib import Path
@@ -297,8 +298,69 @@ class AutoTrackerApp:
                         st.rerun()
                 except Exception as e:
                     st.error(f"❌ Errore: {str(e)}")
+
+        # Sezione Scheduling
+        st.header("⏰ Aggiornamento Automatico")
+        
+        # Recupera configurazione attuale
+        config = self.tracker.get_scheduler_config()
+        
+        with st.form("scheduler_config"):
+            enabled = st.toggle(
+                "Abilita aggiornamento automatico",
+                value=config.get('enabled', False),
+                help="Attiva o disattiva l'aggiornamento automatico di tutti i concessionari"
+            )
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                hour = st.number_input(
+                    "Ora esecuzione (0-23)",
+                    min_value=0,
+                    max_value=23,
+                    value=config.get('hour', 1),
+                    help="Ora del giorno in cui eseguire l'aggiornamento"
+                )
+                
+            with col2:
+                minute = st.number_input(
+                    "Minuto esecuzione (0-59)",
+                    min_value=0,
+                    max_value=59,
+                    value=config.get('minute', 0),
+                    help="Minuto dell'ora in cui eseguire l'aggiornamento"
+                )
+                
+            if st.form_submit_button("Salva Configurazione", use_container_width=True):
+                try:
+                    new_config = {
+                        'enabled': enabled,
+                        'hour': hour,
+                        'minute': minute,
+                        'last_update': config.get('last_update'),
+                        'updated_at': datetime.now()
+                    }
                     
-        # Lista dealers
+                    self.tracker.save_scheduler_config(new_config)
+                    st.success("✅ Configurazione scheduler salvata")
+                    
+                    # Mostra prossima esecuzione se abilitato
+                    if enabled:
+                        now = datetime.now()
+                        next_run = now.replace(hour=hour, minute=minute)
+                        if next_run < now:
+                            next_run = next_run.replace(day=next_run.day + 1)
+                        st.info(f"⏰ Prossima esecuzione: {next_run.strftime('%d/%m/%Y %H:%M')}")
+                    
+                except Exception as e:
+                    st.error(f"❌ Errore nel salvataggio: {str(e)}")
+                    
+        # Mostra stato ultimo aggiornamento
+        if config.get('last_update'):
+            st.caption(f"Ultimo aggiornamento automatico: {config['last_update'].strftime('%d/%m/%Y %H:%M')}")
+                
+        # Lista dealers esistenti
         dealers = self.tracker.get_dealers()
         if dealers:
             st.header("📋 Concessionari Attivi")
