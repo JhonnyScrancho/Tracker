@@ -238,20 +238,27 @@ def main():
                     
                     # Input targa con pulsante salva
                     df['targa'] = df.apply(
-                        lambda row: (
-                            st.text_input(
-                                "",  # Label vuota per l'input
-                                value=row.get('plate', ''),
-                                key=f"plate_{row['id']}",
-                                placeholder="Inserisci targa",
-                                on_change=lambda: tracker.update_plate(
-                                    row['id'], 
-                                    st.session_state[f"plate_{row['id']}"]
-                                ) if st.session_state.get(f"plate_{row['id']}") != row.get('plate', '') else None
-                            )
+                        lambda row: st.text_input(
+                            "Targa",
+                            value=row.get('plate', ''),
+                            key=f"plate_{row['id']}",
+                            placeholder="Inserisci targa",
+                            # Stilizzazione per l'input
+                            help=f"Targa del veicolo {row['title']}"
                         ),
                         axis=1
                     )
+
+                    # Aggiungiamo un pulsante salva per riga solo quando il valore è cambiato
+                    for idx, row in df.iterrows():
+                        if st.session_state.get(f"plate_{row['id']}") != row.get('plate', ''):
+                            col = st.columns([8, 1])[1]  # Posiziona il pulsante a destra
+                            with col:
+                                if st.button("💾", key=f"save_{row['id']}", help="Salva modifiche"):
+                                    tracker.update_plate(row['id'], st.session_state[f"plate_{row['id']}"])
+                                    st.success("✅ Targa aggiornata")
+                                    time.sleep(0.5)
+                                    st.rerun()
                     
                     # Altre formattazioni
                     df['title'] = df['title'].apply(lambda x: f'<div class="col-modello">{x}</div>')

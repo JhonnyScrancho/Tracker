@@ -765,31 +765,27 @@ class AutoTracker:
         
     def update_plate(self, listing_id: str, new_plate: str):
         """
-        Aggiorna la targa di un annuncio nel database
+        Aggiorna la targa di un annuncio
         
         Args:
             listing_id: ID dell'annuncio
             new_plate: Nuova targa
         """
         try:
+            # Validazione della targa
+            if new_plate and not re.match(r'^[A-Z]{2}\d{3,4}[A-Z]{2}$', new_plate.upper()):
+                st.error("❌ Formato targa non valido")
+                return False
+
             # Aggiorna il documento
             self.db.collection('listings').document(listing_id).update({
-                'plate': new_plate,
+                'plate': new_plate.upper() if new_plate else None,
                 'plate_edited': True,
                 'plate_edit_date': datetime.now()
             })
             
-            # Registra la modifica nello storico
-            history_ref = self.db.collection('history').document()
-            history_data = {
-                'listing_id': listing_id,
-                'date': datetime.now(),
-                'event': 'plate_edit',
-                'new_plate': new_plate
-            }
-            history_ref.set(history_data)
-            
             return True
+            
         except Exception as e:
             st.error(f"❌ Errore nell'aggiornamento della targa: {str(e)}")
             return False
