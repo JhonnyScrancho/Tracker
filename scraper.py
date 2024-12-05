@@ -228,7 +228,7 @@ class AutoScoutScraper:
 
     def get_listing_images(self, listing_url: str) -> List[Dict[str, float]]:
         """
-        Recupera e analizza SOLO le prime 10 immagini dell'annuncio, ordinandole per probabilità di contenere una targa.
+        Recupera e analizza SOLO le prime 10 immagini dell'annuncio.
         """
         try:
             st.write(f"📷 Recupero immagini da {listing_url}")
@@ -239,45 +239,38 @@ class AutoScoutScraper:
 
             soup = BeautifulSoup(response, 'lxml')
             images = []
+            found_urls = set()
             MAX_IMAGES = 10
 
-            # Lista di selettori in ordine di specificità
-            selectors = [
-                '.image-gallery-slides picture.ImageWithBadge_picture__XJG24 img',
-                '.image-gallery-slides img',
-                '.Gallery_gallery__ppyDW img',
+            # Combina tutti i selettori in una singola query
+            all_images = soup.select(
+                '.image-gallery-slides picture.ImageWithBadge_picture__XJG24 img, ' + 
+                '.image-gallery-slides img, ' + 
+                '.Gallery_gallery__ppyDW img, ' + 
                 'img[src*="/auto/"]'
-            ]
+            )
 
-            found_urls = set()  # Per tenere traccia degli URL già processati
-            
-            # Ciclo principale che si ferma dopo MAX_IMAGES
-            for selector in selectors:
-                if len(images) >= MAX_IMAGES:
-                    break  # Esci dal ciclo dei selettori
-                    
-                elements = soup.select(selector)
-                
-                for img in elements:
-                    if len(images) >= MAX_IMAGES:
-                        break  # Esci dal ciclo delle immagini
+            # Prendi solo le prime MAX_IMAGES immagini
+            for img in all_images[:MAX_IMAGES]:
+                if img.get('src'):
+                    img_url = img['src']
+                    # Normalizza URL per la massima qualità
+                    base_url = re.sub(r'/\d+x\d+\.(webp|jpg)', '', img_url)
+                    if not base_url.endswith('.jpg'):
+                        base_url += '.jpg'
                         
-                    if img.get('src'):
-                        img_url = img['src']
-                        # Normalizza URL per la massima qualità
-                        base_url = re.sub(r'/\d+x\d+\.(webp|jpg)', '', img_url)
-                        if not base_url.endswith('.jpg'):
-                            base_url += '.jpg'
-                                    
-                        if base_url not in found_urls:
-                            found_urls.add(base_url)
-                            st.write(f"Analisi immagine {len(images) + 1}/{MAX_IMAGES}...")
-                            plate_likelihood = self._analyze_image_for_plate_likelihood(base_url)
-                            images.append({
-                                'url': base_url,
-                                'plate_likelihood': plate_likelihood,
-                                'index': len(images) + 1
-                            })
+                    if base_url not in found_urls:
+                        found_urls.add(base_url)
+                        st.write(f"Analisi immagine {len(images) + 1}/{MAX_IMAGES}...")
+                        plate_likelihood = self._analyze_image_for_plate_likelihood(base_url)
+                        images.append({
+                            'url': base_url,
+                            'plate_likelihood': plate_likelihood,
+                            'index': len(images) + 1
+                        })
+                        
+                        if len(images) >= MAX_IMAGES:
+                            break
 
             st.write(f"\n📊 Analizzate {len(images)} immagini")
             
