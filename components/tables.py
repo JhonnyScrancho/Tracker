@@ -43,7 +43,7 @@ def show_listings_table(listings):
             'plate': 'Targa',
             'title': 'Modello',
             'prezzo': 'Prezzo',
-            'prezzo_scontato': 'Prezzo Scontato',
+            'prezzo_scontato': 'P. Scontato',
             'km': 'Chilometri',
             'registration': 'Immatricolazione',
             'fuel': 'Carburante',
