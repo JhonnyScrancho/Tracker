@@ -234,6 +234,40 @@ class AutoTrackerApp:
         if not dealers:
             st.info("👋 Aggiungi un concessionario per iniziare")
             return
+        
+        # Bottone aggiornamento massivo
+        if st.button("🔄 Aggiorna Tutti i Concessionari", type="primary", use_container_width=True):
+            with st.status("⏳ Aggiornamento in corso...", expanded=True) as status:
+                try:
+                    total_listings = 0
+                    
+                    # Aggiorna ogni dealer
+                    for dealer in dealers:
+                        st.write(f"📥 Aggiornamento {dealer['url']}...")
+                        try:
+                            listings = self.tracker.scrape_dealer(dealer['url'])
+                            if listings:
+                                # Salva nuovi annunci
+                                self.tracker.save_listings(listings)
+                                # Marca inattivi quelli non più presenti
+                                self.tracker.mark_inactive_listings(dealer['id'], [l['id'] for l in listings])
+                                total_listings += len(listings)
+                                st.success(f"✅ Aggiornati {len(listings)} annunci per {dealer['url']}")
+                            else:
+                                st.warning(f"⚠️ Nessun annuncio trovato per {dealer['url']}")
+                        except Exception as e:
+                            st.error(f"❌ Errore per {dealer['url']}: {str(e)}")
+                            continue
+                    
+                    status.update(label=f"✅ Aggiornamento completato! Processati {total_listings} annunci totali", state="complete")
+                    
+                    # Aggiorna timestamp ultimo aggiornamento
+                    self.tracker.save_scheduler_config({
+                        'last_update': datetime.now()
+                    })
+                    
+                except Exception as e:
+                    status.update(label=f"❌ Errore durante l'aggiornamento: {str(e)}", state="error")
             
         # Statistiche globali
         total_cars = 0
