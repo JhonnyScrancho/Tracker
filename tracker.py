@@ -280,7 +280,88 @@ class AutoTracker:
                 time.sleep(2 ** attempt)  # Backoff esponenziale
         return None
     
-    def get_listing_images(self, listing_url: str) -> List[Dict[str, float]]:
+    def _analyze_image_for_plate_likelihood(self, img_url: str) -> float:
+        """
+        Analizza un'immagine per determinare la probabilità che contenga una targa visibile.
+        Ritorna uno score da 0 a 1.
+        """
+        try:
+            # Scarica l'immagine
+            response = requests.get(img_url)
+            img_array = np.asarray(bytearray(response.content), dtype=np.uint8)
+            img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+            
+            if img is None:
+                return 0.0
+            
+            # Converti in scala di grigi
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            
+            # 1. Verifica se l'immagine è frontale/posteriore del veicolo
+            edges = cv2.Canny(gray, 50, 150)
+            lines = cv2.HoughLinesP(edges, 1, np.pi/180, 100, minLineLength=100, maxLineGap=10)
+            
+            horizontal_lines = 0
+            vertical_lines = 0
+            if lines is not None:
+                for line in lines:
+                    x1, y1, x2, y2 = line[0]
+                    angle = abs(np.arctan2(y2-y1, x2-x1) * 180 / np.pi)
+                    if angle < 30 or angle > 150:
+                        horizontal_lines += 1
+                    if 60 < angle < 120:
+                        vertical_lines += 1
+            
+            h_ratio = horizontal_lines / (vertical_lines + 1)
+            
+            # 2. Cerca rettangoli con proporzioni simili a targhe italiane (520x110 mm)
+            plate_ratio = 4.7
+            plate_ratio_tolerance = 0.5
+            
+            contours, _ = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+            potential_plates = 0
+            
+            # Dimensioni immagine per calcolo percentuali
+            height, width = img.shape[:2]
+            img_area = height * width
+            
+            for cnt in contours:
+                x, y, w, h = cv2.boundingRect(cnt)
+                if w > h:  # Solo rettangoli orizzontali
+                    ratio = w/h
+                    if abs(ratio - plate_ratio) < plate_ratio_tolerance:
+                        area = w * h
+                        area_percentage = (area / img_area) * 100
+                        
+                        # Una targa dovrebbe occupare tra lo 0.5% e il 5% dell'immagine
+                        if 0.5 < area_percentage < 5:
+                            potential_plates += 1
+                            
+                            # Analisi aggiuntiva della regione
+                            roi = gray[y:y+h, x:x+w]
+                            if roi.size > 0:
+                                # Contrasto nella regione
+                                contrast = np.std(roi)
+                                # Presenza di testo (molti bordi)
+                                roi_edges = cv2.Canny(roi, 50, 150)
+                                edge_density = np.count_nonzero(roi_edges) / roi.size
+                                
+                                if contrast > 30 and edge_density > 0.1:
+                                    potential_plates += 1
+            
+            # 3. Calcola score finale pesato
+            composition_score = min(h_ratio / 2, 1.0)  # Max 1.0
+            plate_score = min(potential_plates / 3, 1.0)  # Max 1.0
+            
+            final_score = (composition_score * 0.6) + (plate_score * 0.4)
+            
+            return min(final_score, 1.0)
+            
+        except Exception as e:
+            st.error(f"❌ Errore nell'analisi dell'immagine {img_url}: {str(e)}")
+            return 0.0
+
+    def get_listing_images(self, listing_url: str) -> list:
         """
         Recupera e analizza le immagini dell'annuncio, ordinandole per probabilità di contenere una targa.
         """
@@ -338,7 +419,7 @@ class AutoTracker:
                 st.write(f"{i}. Immagine {img['index']} - Score: {img['plate_likelihood']:.2f}")
                 st.image(img['url'], caption=f"Immagine #{img['index']} (Score: {img['plate_likelihood']:.2f})", width=300)
 
-            return best_images
+            return [img['url'] for img in best_images]  # Ritorna solo gli URL delle migliori immagini
 
         except Exception as e:
             st.error(f"❌ Errore nel recupero immagini: {str(e)}")
