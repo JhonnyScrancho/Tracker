@@ -50,7 +50,7 @@ st.markdown("""
             background-color: #f5f5f5;
         }
         
-        .col-foto { width: 300px !important; padding: 5px !important; }
+        .col-foto { width: auto !important; padding: 5px !important; }
         .col-id { width: auto !important; font-family: monospace; font-size: 0.5em; }
         .col-targa { width: auto !important; text-align: center !important; }
         .col-modello { min-width: auto !important; }
@@ -61,8 +61,8 @@ st.markdown("""
         .col-link { width: auto !important; text-align: center !important; }
         
         .table-img {
-            width: 80px;
-            height: 60px;
+            max-width: 200px !important;
+            height: auto;
             object-fit: cover;
             border-radius: 4px;
         }
