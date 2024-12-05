@@ -125,6 +125,57 @@ class AutoTrackerApp:
         else:
             st.info(message)
 
+    def check_scheduler(self):
+        """Controlla ed esegue eventuali task schedulati"""
+        try:
+            # Recupera configurazione scheduler
+            scheduler_config = self.tracker.get_scheduler_config()
+            
+            if not scheduler_config or not scheduler_config.get('enabled'):
+                return
+                
+            now = datetime.now()
+            last_update = scheduler_config.get('last_update')
+            
+            # Se non c'è stato un aggiornamento oggi
+            if not last_update or last_update.date() < now.date():
+                scheduled_time = now.replace(
+                    hour=scheduler_config.get('hour', 1),
+                    minute=scheduler_config.get('minute', 0)
+                )
+
+                # Se è l'ora di eseguire l'aggiornamento
+                if now >= scheduled_time:
+                    # Recupera tutti i dealer attivi
+                    dealers = self.tracker.get_dealers()
+                    
+                    for dealer in dealers:
+                        try:
+                            # Esegue lo scrape
+                            listings = self.tracker.scrape_dealer(dealer['url'])
+                            if listings:
+                                # Salva i nuovi annunci
+                                self.tracker.save_listings(listings)
+                                # Marca come inattivi gli annunci non più presenti
+                                self.tracker.mark_inactive_listings(
+                                    dealer['id'], 
+                                    [l['id'] for l in listings]
+                                )
+                        except Exception as e:
+                            st.error(f"❌ Errore scrape dealer {dealer['id']}: {str(e)}")
+                            continue
+
+                    # Aggiorna timestamp ultimo aggiornamento
+                    self.tracker.save_scheduler_config({
+                        'last_update': now
+                    })
+                    
+                    st.success(f"✅ Aggiornamento completato per {len(dealers)} dealer")
+                
+        except Exception as e:
+            st.error(f"❌ Errore durante l'esecuzione scheduler: {str(e)}")
+
+    
     def run(self):
         """Esegue l'applicazione"""
         # Inizializza il tracker
