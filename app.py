@@ -29,13 +29,13 @@ st.markdown("""
         
         .dataframe {
             width: 100%;
-            margin: 1rem 0;
+            margin: 0.5rem 0;
             border-collapse: collapse;
             font-size: 14px;
         }
         .dataframe th {
             background-color: #f8f9fa;
-            padding: 12px 8px;
+            padding: 0;
             font-weight: 600;
             text-align: left;
             border-bottom: 2px solid #dee2e6;
@@ -51,7 +51,7 @@ st.markdown("""
         }
         
         .col-foto { width: auto !important; padding: 5px !important; }
-        .col-id { width: auto !important; font-family: monospace; font-size: 0.5em; }
+        .col-id { width: auto !important; }
         .col-targa { width: auto !important; text-align: center !important; }
         .col-modello { min-width: auto !important; }
         .col-prezzo { width: auto !important; text-align: right !important; }
@@ -69,9 +69,8 @@ st.markdown("""
         .listing-id {
             font-family: monospace;
             background-color: #f3f4f6;
-            padding: 4px 6px;
             border-radius: 4px;
-            font-size: 0.9em;
+            font-size: 0.8em;
             color: #374151;
         }
     </style>
