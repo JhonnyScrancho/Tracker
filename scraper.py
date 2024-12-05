@@ -228,7 +228,7 @@ class AutoScoutScraper:
 
     def get_listing_images(self, listing_url: str) -> List[Dict[str, float]]:
         """
-        Recupera e analizza le immagini dell'annuncio, ordinandole per probabilità di contenere una targa.
+        Recupera e analizza le prime 10 immagini dell'annuncio, ordinandole per probabilità di contenere una targa.
         """
         try:
             st.write(f"📷 Recupero immagini da {listing_url}")
@@ -239,6 +239,7 @@ class AutoScoutScraper:
 
             soup = BeautifulSoup(response, 'lxml')
             images = []
+            MAX_IMAGES = 10  # Limitiamo a 10 immagini
 
             # Lista di selettori in ordine di specificità
             selectors = [
@@ -248,11 +249,17 @@ class AutoScoutScraper:
                 'img[src*="/auto/"]'
             ]
 
-            # Raccoglie tutte le immagini uniche
+            # Raccoglie le prime 10 immagini uniche
             for selector in selectors:
+                if len(images) >= MAX_IMAGES:
+                    break
+                    
                 elements = soup.select(selector)
                 
                 for img in elements:
+                    if len(images) >= MAX_IMAGES:
+                        break
+                        
                     if img.get('src'):
                         img_url = img['src']
                         # Normalizza URL per la massima qualità
@@ -267,7 +274,7 @@ class AutoScoutScraper:
                                 'url': base_url,
                                 'plate_likelihood': plate_likelihood
                             })
-                            st.write(f"✅ Trovata immagine con score {plate_likelihood:.2f}: {base_url}")
+                            st.write(f"✅ Trovata immagine {len(images)}/10 con score {plate_likelihood:.2f}: {base_url}")
 
             # Ordina per probabilità e prendi le migliori 3
             best_images = sorted(images, key=lambda x: x['plate_likelihood'], reverse=True)[:3]
