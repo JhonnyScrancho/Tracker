@@ -61,7 +61,12 @@ class HomePage:
                         st.metric("🔍 Targhe Mancanti", missing_plates)
                         
                     # Link alla pagina del dealer con query parameter
-                    st.page_link(f"/Dealer?dealer_id={dealer['id']}", label="Vedi Dettagli", use_container_width=True)
+                    st.page_link(
+                        "pages/dealer_view.py", 
+                        label="Vedi Dettagli",
+                        query_params={"dealer_id": dealer['id']},
+                        use_container_width=True
+                    )
                 else:
                     st.info("ℹ️ Nessun annuncio attivo")
 
