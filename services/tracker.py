@@ -557,7 +557,11 @@ class AutoTracker:
                 'price': normalized_listing['original_price'],
                 'discounted_price': normalized_listing['discounted_price'],
                 'date': timestamp,
-                'event': 'update'
+                'event': 'update',
+                'listing_details': {
+                    'plate': normalized_listing['plate'],
+                    'title': normalized_listing['title']
+                }
             }
             batch.set(history_ref, history_data)
         
@@ -584,7 +588,8 @@ class AutoTracker:
                     'listing_id': doc.id,
                     'dealer_id': dealer_id,
                     'date': datetime.now(),
-                    'event': 'removed'
+                    'event': 'removed',
+                    'listing_details': doc.to_dict()
                 }
                 batch.set(history_ref, history_data)
                 

@@ -45,12 +45,6 @@ def calculate_dealer_stats(listings: List[Dict]) -> Dict:
 def create_timeline_chart(history_data):
     """
     Crea grafico timeline delle attività del dealer
-    
-    Args:
-        history_data: Lista di eventi storici dal database
-        
-    Returns:
-        Figura Plotly con il grafico timeline
     """
     if not history_data:
         return None
@@ -61,6 +55,26 @@ def create_timeline_chart(history_data):
     # Crea la figura
     fig = go.Figure()
     
+    # Ottieni i dettagli degli annunci
+    listings_details = {}
+    for listing_id in df['listing_id'].unique():
+        # Cerca l'ultimo record per ogni annuncio
+        listing_data = df[df['listing_id'] == listing_id].iloc[-1]
+        if listing_data.get('listing_details'):
+            plate = listing_data['listing_details'].get('plate', 'NO TARGA')
+            title = listing_data['listing_details'].get('title', 'N/D')
+            # Estrai marca e modello dal titolo
+            title_parts = title.split(' ', 2)  # Divide al massimo in 3 parti
+            if len(title_parts) >= 2:
+                brand_model = f"{title_parts[0]} {title_parts[1]}"  # Prendi marca e primo modello
+            else:
+                brand_model = title
+            
+            # Crea etichetta
+            listings_details[listing_id] = f"{plate} - {brand_model}"
+        else:
+            listings_details[listing_id] = f"ID: {listing_id[:8]}..."
+    
     # Aggiungi una traccia per ogni annuncio
     for listing_id in df['listing_id'].unique():
         mask = df['listing_id'] == listing_id
@@ -69,9 +83,9 @@ def create_timeline_chart(history_data):
         # Aggiungi traccia al grafico
         fig.add_trace(go.Scatter(
             x=listing_data['date'],
-            y=[listing_id] * len(listing_data),
+            y=[listings_details[listing_id]] * len(listing_data),
             mode='markers+lines',
-            name=f'Annuncio {listing_id[:8]}...',  # Tronca ID lunghi
+            name=listings_details[listing_id],
             hovertemplate='%{text}<br>Data: %{x}',
             text=[f"Evento: {e}" for e in listing_data['event']]
         ))
@@ -80,7 +94,7 @@ def create_timeline_chart(history_data):
     fig.update_layout(
         title="Timeline Attività Annunci",
         xaxis_title="Data",
-        yaxis_title="ID Annuncio",
+        yaxis_title="Veicolo",
         height=400,
         showlegend=True,
         xaxis=dict(
