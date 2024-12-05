@@ -78,20 +78,25 @@ class GrokVision:
 
     def analyze_batch(self, images: List[str]) -> Optional[Dict]:
         """
-        Analizza un batch di immagini con Grok Vision
+        Analizza le immagini in modo ottimizzato per ridurre i costi
         Args:
             images: Lista di URL immagini
         Returns:
             Dizionario con i risultati dell'analisi
         """
         try:
-            best_plate = None
-            best_confidence = 0
-            best_image_index = None
-            vehicle_type = None
-
+            # Prima analizziamo localmente le immagini per trovare la migliore candidata
+            scored_images = []
             for idx, image_url in enumerate(images):
-                st.write(f"🔍 Analisi immagine {idx+1}/{len(images)}...")
+                likelihood = self._analyze_image_for_plate_likelihood(image_url)
+                scored_images.append((likelihood, idx, image_url))
+            
+            # Ordiniamo per probabilità decrescente
+            scored_images.sort(reverse=True)
+            
+            # Proviamo prima con l'immagine migliore
+            for likelihood, idx, image_url in scored_images:
+                st.write(f"🔍 Analisi immagine {idx+1} (score: {likelihood:.2f})...")
                 
                 # Codifica l'immagine in base64
                 base64_image = self._encode_image_url(image_url)
@@ -113,7 +118,7 @@ class GrokVision:
                             {
                                 "type": "text",
                                 "text": "Analizza questa immagine di un veicolo. Se vedi una targa italiana, scrivila. "
-                                       "Indica anche il tipo di veicolo (es. auto, moto, furgone).",
+                                    "Indica anche il tipo di veicolo (es. auto, moto, furgone).",
                             },
                         ],
                     }
@@ -130,30 +135,33 @@ class GrokVision:
                 response_text = response.choices[0].message.content
                 plate, confidence = self._extract_plate_from_response(response_text)
                 
-                # Aggiorna il migliore risultato se necessario
-                if plate and confidence > best_confidence:
-                    best_plate = plate
-                    best_confidence = confidence
-                    best_image_index = idx
+                # Se troviamo una targa con alta confidenza, ci fermiamo qui
+                if plate and confidence > 0.8:
+                    vehicle_type = None
+                    if "TIPO DI VEICOLO:" in response_text.upper():
+                        vehicle_type = response_text.split("TIPO DI VEICOLO:")[1].split("\n")[0].strip()
                     
-                # Estrai il tipo di veicolo se non ancora trovato
-                if not vehicle_type and "TIPO DI VEICOLO:" in response_text.upper():
-                    vehicle_type = response_text.split("TIPO DI VEICOLO:")[1].split("\n")[0].strip()
+                    result = {
+                        'plate': plate,
+                        'plate_confidence': confidence,
+                        'vehicle_type': vehicle_type,
+                        'best_image_index': idx
+                    }
+                    
+                    st.success(f"✅ Targa rilevata: {plate} (confidenza: {confidence:.2%})")
+                    return result
+                
+                # Se non troviamo una targa con alta confidenza, proviamo con la prossima immagine
+                st.warning("⚠️ Targa non rilevata con sufficiente confidenza, provo con la prossima immagine...")
 
-            # Prepara il risultato finale
-            result = {
-                'plate': best_plate,
-                'plate_confidence': best_confidence,
-                'vehicle_type': vehicle_type,
-                'best_image_index': best_image_index
+            # Se arriviamo qui, non abbiamo trovato targhe in nessuna immagine
+            st.warning("⚠️ Nessuna targa rilevata con sufficiente confidenza in tutte le immagini")
+            return {
+                'plate': None,
+                'plate_confidence': 0,
+                'vehicle_type': None,
+                'best_image_index': None
             }
-
-            if best_plate:
-                st.success(f"✅ Targa rilevata: {best_plate} (confidenza: {best_confidence:.2%})")
-            else:
-                st.warning("⚠️ Nessuna targa rilevata nelle immagini")
-
-            return result
 
         except Exception as e:
             st.error(f"❌ Errore Grok Vision: {str(e)}")
