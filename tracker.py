@@ -9,6 +9,8 @@ import pandas as pd
 import firebase_admin
 import re
 import time
+import cv2
+import numpy as np
 
 try:
     from plate_detector import PlateDetector
