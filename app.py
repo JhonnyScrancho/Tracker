@@ -236,7 +236,7 @@ class AutoTrackerApp:
             return
         
         # Bottone aggiornamento massivo
-        if st.button("🔄 Aggiorna Tutti i Concessionari", use_container_width=False):
+        if st.button("🔄 Aggiorna Tutto", use_container_width=False):
             with st.status("⏳ Aggiornamento in corso...", expanded=True) as status:
                 try:
                     total_listings = 0
