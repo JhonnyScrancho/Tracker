@@ -3,16 +3,18 @@ from bs4 import BeautifulSoup
 import time
 from datetime import datetime
 import re
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Set
+from dataclasses import dataclass
+
+@dataclass
+class CarImage:
+    url: str
+    is_main: bool = False
+    detected_plate: Optional[str] = None
+    plate_score: float = 0.0
 
 class AutoScoutScraper:
     def __init__(self, delay_between_requests: int = 3):
-        """
-        Inizializza lo scraper con rate limiting
-        
-        Args:
-            delay_between_requests: Secondi di attesa tra le richieste
-        """
         self.delay = delay_between_requests
         self.last_request = 0
         self.session = requests.Session()
@@ -21,9 +23,10 @@ class AutoScoutScraper:
             'Accept-Language': 'it-IT,it;q=0.9',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
         })
+        # Cache per gli ID già processati
+        self.processed_ids: Set[str] = set()
 
     def _wait_for_rate_limit(self):
-        """Implementa rate limiting tra le richieste"""
         now = time.time()
         time_passed = now - self.last_request
         if time_passed < self.delay:
@@ -31,16 +34,6 @@ class AutoScoutScraper:
         self.last_request = time.time()
 
     def _get_with_retry(self, url: str, max_retries: int = 3) -> Optional[str]:
-        """
-        Esegue GET con retry in caso di errore
-        
-        Args:
-            url: URL da scaricare
-            max_retries: Numero massimo di tentativi
-            
-        Returns:
-            HTML della pagina o None in caso di errore
-        """
         for attempt in range(max_retries):
             try:
                 self._wait_for_rate_limit()
@@ -51,33 +44,50 @@ class AutoScoutScraper:
                 if attempt == max_retries - 1:
                     print(f"Error fetching {url}: {str(e)}")
                     return None
-                time.sleep(2 ** attempt)  # Exponential backoff
+                time.sleep(2 ** attempt)
         return None
 
-    def extract_car_data(self, listing_element) -> Dict:
+    def extract_car_data(self, listing_element, existing_ids: Set[str] = None) -> Dict:
+        """
+        Estrae i dati dell'auto, controlla se l'ID esiste già
+        
+        Args:
+            listing_element: Elemento BS4 dell'annuncio
+            existing_ids: Set di ID già presenti nel database
+        """
+        listing_id = listing_element.get('id', '')
         title_elem = listing_element.select_one('[data-testid="title"]')
         price_elem = listing_element.select_one('[data-testid="price"]')
         img_elem = listing_element.select_one('img[src*="/auto/"]')
         link_elem = listing_element.select_one('a[href*="/auto/"]')
         
-        return {
+        # Flag per indicare se è un annuncio già esistente
+        is_existing = existing_ids and listing_id in existing_ids
+        
+        car_data = {
+            'id': listing_id,
             'title': title_elem.text.strip() if title_elem else None,
             'price': self._extract_price(price_elem.text) if price_elem else None,
-            'plate': self._extract_plate(title_elem.text if title_elem else ''),
             'url': link_elem['href'] if link_elem else None,
             'image_url': img_elem['src'] if img_elem else None,
-            'scrape_date': datetime.now()
+            'scrape_date': datetime.now(),
+            'is_existing': is_existing
         }
+        
+        # Estrai la targa dal titolo solo se è un nuovo annuncio
+        if not is_existing:
+            car_data['plate'] = self._extract_plate(title_elem.text if title_elem else '')
+            
+        return car_data
 
     def _extract_plate(self, text):
-        """Extract plate from text using regex"""
         if not text:
             return None
         
         patterns = [
-            r'[A-Z]{2}\s*\d{3}\s*[A-Z]{2}',  # Format XX000XX
-            r'[A-Z]{2}\s*\d{5}',              # Format XX00000
-            r'[A-Z]{2}\s*\d{4}\s*[A-Z]{1,2}'  # Other common formats
+            r'[A-Z]{2}\s*\d{3}\s*[A-Z]{2}',
+            r'[A-Z]{2}\s*\d{5}',
+            r'[A-Z]{2}\s*\d{4}\s*[A-Z]{1,2}'
         ]
         
         text = text.upper()
@@ -88,34 +98,21 @@ class AutoScoutScraper:
         return None
 
     def _extract_price(self, text: str) -> Optional[float]:
-        """
-        Estrae il prezzo dal testo
-        
-        Args:
-            text: Testo contenente il prezzo
-            
-        Returns:
-            Prezzo come float o None se non trovato
-        """
         if not text:
             return None
-            
-        # Rimuovi caratteri non numerici eccetto il punto
         price_text = re.sub(r'[^\d.]', '', text)
         try:
             return float(price_text)
         except ValueError:
             return None
 
-    def get_dealer_listings(self, dealer_url: str) -> List[Dict]:
+    def get_dealer_listings(self, dealer_url: str, existing_ids: Set[str] = None) -> List[Dict]:
         """
-        Scarica e analizza tutti gli annunci di un concessionario
+        Scarica e analizza gli annunci, ottimizzando per annunci già esistenti
         
         Args:
             dealer_url: URL del concessionario
-            
-        Returns:
-            Lista di dizionari con i dati delle auto
+            existing_ids: Set di ID annunci già presenti nel database
         """
         html = self._get_with_retry(dealer_url)
         if not html:
@@ -124,28 +121,83 @@ class AutoScoutScraper:
         soup = BeautifulSoup(html, 'lxml')
         listings = []
         
-        # Selettore per gli elementi degli annunci
         for listing_elem in soup.select('[data-testid="listing"]'):
             try:
-                car_data = self.extract_car_data(listing_elem)
-                if car_data['plate']:  # Aggiungi solo se ha trovato una targa
+                car_data = self.extract_car_data(listing_elem, existing_ids)
+                
+                # Se l'annuncio è nuovo, recupera tutte le informazioni
+                if not car_data.get('is_existing'):
+                    if car_data['url']:
+                        images = self.get_listing_images(car_data['url'])
+                        if images:
+                            car_data['image_urls'] = [img.url for img in images]
+                            
                     listings.append(car_data)
+                else:
+                    # Per annunci esistenti, aggiorna solo prezzo e titolo
+                    print(f"Annuncio {car_data['id']} già esistente, aggiorno solo i dati base")
+                    listings.append({
+                        'id': car_data['id'],
+                        'title': car_data['title'],
+                        'price': car_data['price'],
+                        'scrape_date': car_data['scrape_date'],
+                        'is_update': True
+                    })
+                    
             except Exception as e:
                 print(f"Error parsing listing: {str(e)}")
                 continue
                 
         return listings
 
+    def get_listing_images(self, listing_url: str, min_images: int = 3) -> List[CarImage]:
+        try:
+            response = self._get_with_retry(listing_url)
+            if not response:
+                return []
+
+            soup = BeautifulSoup(response, 'lxml')
+            images = []
+
+            # Gallery principale
+            gallery_slides = soup.select('.image-gallery-slides picture.ImageWithBadge_picture__XJG24 img')
+            for idx, img in enumerate(gallery_slides):
+                if img.get('src'):
+                    img_url = self._normalize_image_url(img['src'])
+                    if img_url not in [i.url for i in images]:
+                        images.append(CarImage(url=img_url, is_main=(idx == 0)))
+
+            # Miniature se necessario
+            if len(images) < min_images:
+                thumbnails = soup.select('.image-gallery-thumbnails img')
+                for img in thumbnails:
+                    if img.get('src'):
+                        img_url = self._normalize_image_url(img['src'])
+                        if img_url not in [i.url for i in images]:
+                            images.append(CarImage(url=img_url))
+
+            # Altre immagini se ancora non bastano
+            if len(images) < min_images:
+                other_images = soup.select('img[src*="auto"]')
+                for img in other_images:
+                    if img.get('src'):
+                        img_url = self._normalize_image_url(img['src'])
+                        if img_url not in [i.url for i in images]:
+                            images.append(CarImage(url=img_url))
+
+            return images[:min_images]
+
+        except Exception as e:
+            print(f"Error getting listing images: {str(e)}")
+            return []
+
+    def _normalize_image_url(self, url: str) -> str:
+        base_url = re.sub(r'/\d+x\d+\.(webp|jpg)', '', url)
+        if not base_url.endswith('.jpg'):
+            base_url += '.jpg'
+        return base_url
+
     def extract_dealer_info(self, dealer_url: str) -> Dict:
-        """
-        Estrae informazioni sul concessionario
-        
-        Args:
-            dealer_url: URL del concessionario
-            
-        Returns:
-            Dizionario con i dati del concessionario
-        """
         html = self._get_with_retry(dealer_url)
         if not html:
             return {}

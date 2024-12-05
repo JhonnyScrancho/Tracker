@@ -91,7 +91,16 @@ class AutoTracker:
             dealer_id = dealer_url.split('/')[-1]
 
             articles = soup.select('article.dp-listing-item')
+            if not articles:
+                st.warning("⚠️ Nessun annuncio trovato nella pagina")
+                return []
+
             st.write(f"🚗 Trovati {len(articles)} annunci da processare")
+
+            # Recupera gli ID degli annunci esistenti
+            existing_listings = self.get_active_listings(dealer_id)
+            existing_ids = {listing['id'] for listing in existing_listings}
+            existing_plates = {listing.get('plate'): listing['id'] for listing in existing_listings if listing.get('plate')}
 
             # Inizializza il detector una volta sola fuori dal ciclo
             plate_detector = PlateDetector() if PlateDetector is not None else None
@@ -102,54 +111,24 @@ class AutoTracker:
                     
                     # Identificazione annuncio
                     listing_id = article.get('id', '')
+                    is_existing = listing_id in existing_ids
                     
                     # Estrazione URL e titolo
                     url_elem = article.select_one('a.dp-link.dp-listing-item-title-wrapper')
-                    if url_elem and 'href' in url_elem.attrs:
-                        url = f"https://www.autoscout24.it{url_elem['href']}"
-                        # Estrazione titolo e versione
-                        title_elem = url_elem.select_one('h2')
-                        version_elem = url_elem.select_one('.version')
-                        
-                        title = title_elem.text.strip() if title_elem else "N/D"
-                        version = version_elem.text.strip() if version_elem else ""
-                        full_title = f"{title} {version}".strip()
-                    else:
-                        # Prova con un selettore alternativo
+                    if not url_elem or 'href' not in url_elem.attrs:
+                        # Prova selettore alternativo
                         url_elem = article.select_one('.dp-listing-item-title-wrapper a')
-                        if url_elem and 'href' in url_elem.attrs:
-                            url = f"https://www.autoscout24.it{url_elem['href']}"
-                            title_elem = url_elem.select_one('h2')
-                            version_elem = url_elem.select_one('.version')
-                            
-                            title = title_elem.text.strip() if title_elem else "N/D"
-                            version = version_elem.text.strip() if version_elem else ""
-                            full_title = f"{title} {version}".strip()
-                        else:
-                            url = None
-                            full_title = "N/D"
-                            st.write("⚠️ URL non trovato per questo annuncio")
+                        if not url_elem or 'href' not in url_elem.attrs:
+                            st.warning("⚠️ URL non trovato per questo annuncio")
+                            continue
 
-                    # Estrazione immagini
-                    images = []
-                    if url:
-                        images = self.get_listing_images(url)
-
-                    # Estrazione targa semplificata
-                    plate = None
-                    if images:
-                        with st.spinner("🔍 Analisi targhe..."):
-                            for img_url in images:
-                                try:
-                                    if plate_detector and (plate := plate_detector.detect_with_retry(img_url)):
-                                        break  # Interrompi appena trovi una targa valida
-                                except Exception as e:
-                                    st.warning(f"⚠️ Errore analisi immagine: {str(e)}")
-                                    continue
-
-                    # Fallback su estrazione da testo se non trovata nelle immagini
-                    if not plate:
-                        plate = self._extract_plate(url) or self._extract_plate(full_title) or listing_id
+                    url = f"https://www.autoscout24.it{url_elem['href']}"
+                    title_elem = url_elem.select_one('h2')
+                    version_elem = url_elem.select_one('.version')
+                    
+                    title = title_elem.text.strip() if title_elem else "N/D"
+                    version = version_elem.text.strip() if version_elem else ""
+                    full_title = f"{title} {version}".strip()
 
                     # ESTRAZIONE PREZZI
                     price_section = article.select_one('[data-testid="price-section"]')
@@ -172,7 +151,6 @@ class AutoTracker:
                             if current_price:
                                 prices['discounted_price'] = self._extract_price(current_price.text)
                                 
-                                # Calcola la percentuale di sconto
                                 if prices['original_price'] and prices['discounted_price']:
                                     prices['discount_percentage'] = round(
                                         ((prices['original_price'] - prices['discounted_price']) / 
@@ -199,7 +177,6 @@ class AutoTracker:
                     for item in details_items:
                         text = item.text.strip()
                         
-                        # Chilometraggio
                         if text.endswith('km'):
                             try:
                                 km_value = ''.join(c for c in text if c.isdigit())
@@ -207,25 +184,46 @@ class AutoTracker:
                             except ValueError:
                                 st.write(f"⚠️ Non riesco a convertire il chilometraggio: {text}")
                         
-                        # Immatricolazione
                         elif '/' in text and len(text) <= 8:
                             details['registration'] = text
                         
-                        # Potenza
                         elif 'CV' in text or 'KW' in text:
                             details['power'] = text
                         
-                        # Alimentazione
                         elif any(fuel in text.lower() for fuel in ['benzina', 'diesel', 'elettrica', 'ibrida', 'gpl', 'metano']):
                             details['fuel'] = text
                         
-                        # Cambio
                         elif any(trans in text.lower() for trans in ['manuale', 'automatico']):
                             details['transmission'] = text
                         
-                        # Consumi
                         elif 'l/100' in text or 'kwh/100' in text:
                             details['consumption'] = text
+
+                    # Gestione immagini e targa
+                    images = []
+                    plate = None
+
+                    # Per annunci esistenti, recupera solo informazioni base
+                    if is_existing:
+                        st.info(f"ℹ️ Annuncio {listing_id} già presente, aggiorno solo i dati essenziali")
+                        # Usa la targa esistente se disponibile
+                        plate = existing_plates.get(listing_id)
+                    else:
+                        # Per nuovi annunci, recupera immagini e targa
+                        images = self.get_listing_images(url)
+                        
+                        if images:
+                            st.write(f"📸 Recuperate {len(images)} immagini")
+                            if plate_detector:
+                                for img_url in images:
+                                    try:
+                                        if detected_plate := plate_detector.detect_with_retry(img_url):
+                                            plate = detected_plate
+                                            st.success(f"✅ Targa rilevata: {plate}")
+                                            break
+                                    except Exception as e:
+                                        st.warning(f"⚠️ Errore analisi immagine: {str(e)}")
+                                        continue
 
                     # Creazione dizionario annuncio
                     listing = {
@@ -238,7 +236,7 @@ class AutoTracker:
                         'has_discount': prices['has_discount'],
                         'discount_percentage': prices['discount_percentage'],
                         'dealer_id': dealer_id,
-                        'image_urls': images,
+                        'image_urls': [img for img in images] if images else [],
                         'mileage': details['mileage'],
                         'registration': details['registration'],
                         'power': details['power'],
