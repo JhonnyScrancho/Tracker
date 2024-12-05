@@ -11,6 +11,7 @@ import re
 import time
 import cv2
 import numpy as np
+from vision_service import VisionService
 
 try:
     from plate_detector import PlateDetector
@@ -45,6 +46,7 @@ class AutoTracker:
         })
         self.last_request = 0
         self.delay = 3
+        self.vision = VisionService(st.secrets["grok"]["api_key"])
 
     def _wait_rate_limit(self):
         """Implementa rate limiting tra le richieste"""
@@ -100,19 +102,22 @@ class AutoTracker:
 
             st.write(f"🚗 Trovati {len(articles)} annunci da processare")
 
-            # Recupera gli ID degli annunci esistenti e le loro immagini
+            # Recupera gli annunci esistenti e loro dati
             existing_listings = self.get_active_listings(dealer_id)
             existing_data = {
                 listing['id']: {
                     'image_urls': listing.get('image_urls', []),
                     'plate': listing.get('plate'),
-                    'plate_likelihood_scores': listing.get('plate_likelihood_scores', [])
+                    'plate_confidence': listing.get('plate_confidence', 0),
+                    'vehicle_type': listing.get('vehicle_type'),
+                    'last_plate_analysis': listing.get('last_plate_analysis'),
+                    'vision_cache': listing.get('vision_cache', {})
                 } 
                 for listing in existing_listings
             }
 
-            # Inizializza il detector una volta sola fuori dal ciclo
-            plate_detector = PlateDetector() if PlateDetector is not None else None
+            # Inizializza il servizio di visione
+            vision_service = VisionService(st.secrets.get("grok", {}).get("api_key"))
 
             for idx, article in enumerate(articles, 1):
                 try:
@@ -148,13 +153,11 @@ class AutoTracker:
                     }
 
                     if price_section:
-                        # Cerca prima eventuali sconti/superdeal
                         discount_price = price_section.select_one('.discount-price, .dp-listing-item__superdeal-strikethrough div')
                         if discount_price:
                             prices['original_price'] = self._extract_price(discount_price.text)
                             prices['has_discount'] = True
                             
-                            # Cerca il prezzo scontato
                             current_price = price_section.select_one('.dp-listing-item__superdeal-highlight-price-span, .current-price')
                             if current_price:
                                 prices['discounted_price'] = self._extract_price(current_price.text)
@@ -166,78 +169,46 @@ class AutoTracker:
                                         1
                                     )
                         else:
-                            # Se non c'è sconto, cerca il prezzo normale
                             regular_price = price_section.select_one('.dp-listing-item__price')
                             if regular_price:
                                 prices['original_price'] = self._extract_price(regular_price.text)
 
                     # Estrazione dettagli veicolo
-                    details = {
-                        'mileage': None,
-                        'registration': None,
-                        'power': None,
-                        'fuel': None,
-                        'transmission': None,
-                        'consumption': None
-                    }
+                    details = self._extract_vehicle_details(article)
 
-                    details_items = article.select('.dp-listing-item__detail-item')
-                    for item in details_items:
-                        text = item.text.strip()
-                        
-                        if text.endswith('km'):
-                            try:
-                                km_value = ''.join(c for c in text if c.isdigit())
-                                details['mileage'] = int(km_value)
-                            except ValueError:
-                                st.write(f"⚠️ Non riesco a convertire il chilometraggio: {text}")
-                        
-                        elif '/' in text and len(text) <= 8:
-                            details['registration'] = text
-                        
-                        elif 'CV' in text or 'KW' in text:
-                            details['power'] = text
-                        
-                        elif any(fuel in text.lower() for fuel in ['benzina', 'diesel', 'elettrica', 'ibrida', 'gpl', 'metano']):
-                            details['fuel'] = text
-                        
-                        elif any(trans in text.lower() for trans in ['manuale', 'automatico']):
-                            details['transmission'] = text
-                        
-                        elif 'l/100' in text or 'kwh/100' in text:
-                            details['consumption'] = text
-
-                    # Gestione immagini e targa per annunci esistenti o nuovi
+                    # Gestione immagini e analisi visione
+                    images = []
+                    vision_results = {}
                     if is_existing:
-                        st.info(f"ℹ️ Annuncio {listing_id} già presente, mantengo dati esistenti")
-                        images = existing_data[listing_id]['image_urls']
-                        plate = existing_data[listing_id]['plate']
-                        plate_scores = existing_data[listing_id]['plate_likelihood_scores']
-                        st.write(f"📸 Mantenute {len(images)} immagini esistenti")
-                        if plate:
-                            st.write(f"🔢 Targa esistente: {plate}")
-                    else:
-                        st.write("🆕 Nuovo annuncio, analizzo le immagini...")
-                        # Per nuovi annunci, recupera e analizza le immagini
-                        images = self.get_listing_images(url)
-                        plate = None
-                        plate_scores = []
+                        existing = existing_data[listing_id]
+                        st.info(f"ℹ️ Annuncio {listing_id} già presente")
                         
-                        if images and plate_detector:
-                            for img_url in images:
-                                try:
-                                    if detected_plate := plate_detector.detect_with_retry(img_url):
-                                        plate = detected_plate
-                                        st.success(f"✅ Targa rilevata: {plate}")
-                                        break
-                                except Exception as e:
-                                    st.warning(f"⚠️ Errore analisi immagine: {str(e)}")
-                                    continue
+                        # Verifica se rianalizzare
+                        should_reanalyze = self._should_reanalyze_listing(
+                            existing.get('last_plate_analysis'),
+                            existing.get('plate_confidence', 0),
+                            prices['original_price'],
+                            existing.get('vision_cache', {}).get('last_price')
+                        )
+                        
+                        if should_reanalyze:
+                            st.write("🔄 Rianalisi necessaria...")
+                            images = self.get_listing_images(url)
+                            if images:
+                                vision_results = vision_service.analyze_vehicle_images(images)
+                        else:
+                            st.write("✅ Usando dati esistenti")
+                            images = existing['image_urls']
+                            vision_results = existing['vision_cache']
+                    else:
+                        st.write("🆕 Nuovo annuncio, recupero immagini...")
+                        images = self.get_listing_images(url)
+                        if images:
+                            vision_results = vision_service.analyze_vehicle_images(images)
 
                     # Creazione dizionario annuncio
                     listing = {
                         'id': listing_id,
-                        'plate': plate,
                         'title': full_title,
                         'url': url,
                         'original_price': prices['original_price'],
@@ -246,13 +217,21 @@ class AutoTracker:
                         'discount_percentage': prices['discount_percentage'],
                         'dealer_id': dealer_id,
                         'image_urls': images,
-                        'plate_likelihood_scores': plate_scores,
                         'mileage': details['mileage'],
                         'registration': details['registration'],
                         'power': details['power'],
                         'fuel': details['fuel'],
                         'transmission': details['transmission'],
                         'consumption': details['consumption'],
+                        'plate': vision_results.get('plate'),
+                        'plate_confidence': vision_results.get('plate_confidence', 0),
+                        'vehicle_type': vision_results.get('vehicle_type'),
+                        'last_plate_analysis': datetime.now() if vision_results else None,
+                        'vision_cache': {
+                            'results': vision_results,
+                            'last_price': prices['original_price'],
+                            'timestamp': datetime.now().isoformat()
+                        },
                         'scrape_date': datetime.now(),
                         'active': True
                     }
@@ -273,6 +252,75 @@ class AutoTracker:
         except Exception as e:
             st.error(f"❌ Errore imprevisto: {str(e)}")
             return []
+
+    def _extract_vehicle_details(self, article) -> dict:
+        """Estrae i dettagli del veicolo dall'articolo"""
+        details = {
+            'mileage': None,
+            'registration': None,
+            'power': None,
+            'fuel': None,
+            'transmission': None,
+            'consumption': None
+        }
+
+        details_items = article.select('.dp-listing-item__detail-item')
+        for item in details_items:
+            text = item.text.strip()
+            
+            if text.endswith('km'):
+                try:
+                    km_value = ''.join(c for c in text if c.isdigit())
+                    details['mileage'] = int(km_value)
+                except ValueError:
+                    st.write(f"⚠️ Non riesco a convertire il chilometraggio: {text}")
+            
+            elif '/' in text and len(text) <= 8:
+                details['registration'] = text
+            
+            elif 'CV' in text or 'KW' in text:
+                details['power'] = text
+            
+            elif any(fuel in text.lower() for fuel in ['benzina', 'diesel', 'elettrica', 'ibrida', 'gpl', 'metano']):
+                details['fuel'] = text
+            
+            elif any(trans in text.lower() for trans in ['manuale', 'automatico']):
+                details['transmission'] = text
+            
+            elif 'l/100' in text or 'kwh/100' in text:
+                details['consumption'] = text
+                
+        return details
+
+    def _should_reanalyze_listing(self, last_analysis, plate_confidence, current_price, cached_price) -> bool:
+        """Determina se un annuncio necessita di rianalisi"""
+        if not last_analysis:
+            return True
+            
+        try:
+            last_analysis_date = datetime.fromisoformat(last_analysis)
+            days_since_analysis = (datetime.now() - last_analysis_date).days
+            
+            # Rianalizza se:
+            # 1. L'ultima analisi è vecchia (>30 giorni)
+            if days_since_analysis > 30:
+                return True
+                
+            # 2. La confidenza della targa è bassa (<90%)
+            if plate_confidence < 0.9:
+                return True
+                
+            # 3. Il prezzo è cambiato significativamente (>15%)
+            if cached_price and current_price:
+                price_change = abs((current_price - cached_price) / cached_price * 100)
+                if price_change > 15:
+                    return True
+                    
+            return False
+            
+        except Exception as e:
+            st.error(f"Errore nella valutazione rianalisi: {str(e)}")
+            return True
 
     def _get_with_retry(self, url: str, max_retries: int = 3) -> Optional[str]:
         """Esegue una richiesta GET con retry"""
