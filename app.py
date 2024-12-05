@@ -388,7 +388,7 @@ class AutoTrackerApp:
         st.header("➕ Aggiungi Concessionario")
         with st.form("add_dealer"):
             url = st.text_input(
-                "URL Concessionario",
+                "URL",
                 placeholder="https://www.autoscout24.it/concessionari/esempio"
             )
             

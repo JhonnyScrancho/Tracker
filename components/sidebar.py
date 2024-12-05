@@ -75,7 +75,7 @@ class Sidebar:
         with st.sidebar.expander("➕ Nuovo Concessionario"):
             with st.form("add_dealer_form", clear_on_submit=True):
                 new_url = st.text_input(
-                    "URL Concessionario",
+                    "URL",
                     placeholder="https://www.autoscout24.it/concessionari/esempio"
                 )
                 
