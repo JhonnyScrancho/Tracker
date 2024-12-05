@@ -1,5 +1,3 @@
-# components/sidebar.py
-
 import streamlit as st
 from services.tracker import AutoTracker
 
@@ -32,23 +30,23 @@ def show_sidebar(tracker):
     # Form aggiunta concessionario
     st.sidebar.divider()
     with st.sidebar.expander("➕ Nuovo Concessionario"):
-        new_url = st.text_input(
-            "URL Concessionario",
-            placeholder="https://www.autoscout24.it/concessionari/esempio"
-        )
-        
-        if st.button("Aggiungi", use_container_width=True):
-            try:
-                dealer_id = new_url.split('/')[-1]
-                if not dealer_id:
-                    st.error("❌ URL non valido")
-                    return None
-                    
-                tracker.save_dealer(dealer_id, new_url)
-                st.success("✅ Concessionario aggiunto")
-                st.rerun()
-                
-            except Exception as e:
-                st.error(f"❌ Errore: {str(e)}")
+        with st.form("add_dealer_form"):
+            new_url = st.text_input(
+                "URL Concessionario",
+                placeholder="https://www.autoscout24.it/concessionari/esempio"
+            )
+            
+            if st.form_submit_button("Aggiungi", use_container_width=True):
+                try:
+                    dealer_id = new_url.split('/')[-1]
+                    if not dealer_id:
+                        st.error("❌ URL non valido")
+                    else:
+                        tracker.save_dealer(dealer_id, new_url)
+                        st.success("✅ Concessionario aggiunto")
+                        st.rerun()
+                        
+                except Exception as e:
+                    st.error(f"❌ Errore: {str(e)}")
                 
     return selected_dealer

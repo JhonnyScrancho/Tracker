@@ -79,49 +79,52 @@ st.markdown("""
 # Inizializzazione
 tracker = AutoTracker()
 
-# Sidebar e selezione concessionario
-selected_dealer = sidebar.show_sidebar(tracker)
+def update_listings(dealer_url, dealer_id):
+    """Funzione centralizzata per aggiornamento annunci"""
+    with st.status("⏳ Aggiornamento...", expanded=True) as status:
+        try:
+            listings = tracker.scrape_dealer(dealer_url)
+            if listings:
+                for listing in listings:
+                    listing['dealer_id'] = dealer_id
+                    
+                # Salva i nuovi annunci
+                tracker.save_listings(listings)
+                
+                # Marca come inattivi gli annunci non più presenti
+                tracker.mark_inactive_listings(dealer_id, [l['id'] for l in listings])
+                
+                status.update(label="✅ Completato!", state="complete")
+                st.success("Aggiornamento completato con successo!")
+                return True
+            else:
+                status.update(label="⚠️ Nessun annuncio trovato", state="error")
+                return False
+        except Exception as e:
+            status.update(label=f"❌ Errore: {str(e)}", state="error")
+            return False
 
-# Main content
-dealers = tracker.get_dealers()
-
-if not dealers:
-    st.title("👋 Benvenuto in Auto Tracker")
-    st.info("Aggiungi un concessionario per iniziare")
-    
-elif selected_dealer:
-    # Vista concessionario
-    st.title(f"🏢 {selected_dealer['url'].split('/')[-1].upper()}")
-    st.caption(selected_dealer['url'])
+def show_dealer_page(dealer):
+    """Visualizza la pagina del concessionario"""
+    st.title(f"🏢 {dealer['url'].split('/')[-1].upper()}")
+    st.caption(dealer['url'])
     
     # Header con stats
-    stats.show_dealer_overview(tracker, selected_dealer['id'])
+    stats.show_dealer_overview(tracker, dealer['id'])
     
     # Aggiorna annunci
     if st.button("🔄 Aggiorna Annunci"):
-        with st.status("⏳ Aggiornamento...", expanded=True) as status:
-            try:
-                listings = tracker.scrape_dealer(selected_dealer['url'])
-                if listings:
-                    for listing in listings:
-                        listing['dealer_id'] = selected_dealer['id']
-                    tracker.save_listings(listings)
-                    tracker.mark_inactive_listings(selected_dealer['id'], [l['id'] for l in listings])
-                    status.update(label="✅ Completato!", state="complete")
-                    st.rerun()
-                else:
-                    status.update(label="⚠️ Nessun annuncio trovato", state="error")
-            except Exception as e:
-                status.update(label=f"❌ Errore: {str(e)}", state="error")
+        success = update_listings(dealer['url'], dealer['id'])
+        if success:
+            st.rerun()
     
     # Filtri
     active_filters = filters.show_filters()
     
     # Lista annunci
-    listings = tracker.get_active_listings(selected_dealer['id'])
+    listings = tracker.get_active_listings(dealer['id'])
     if listings:
         if active_filters:
-            # Applica filtri
             filtered_listings = []
             for listing in listings:
                 if active_filters.get('min_price') and listing.get('original_price', 0) < active_filters['min_price']:
@@ -142,13 +145,14 @@ elif selected_dealer:
         plate_editor.show_plate_editor(tracker, listings)
         
         # Grafici
-        stats.show_dealer_insights(tracker, selected_dealer['id'])
+        stats.show_dealer_insights(tracker, dealer['id'])
     else:
         st.info("ℹ️ Nessun annuncio attivo")
-        
-else:
-    # Dashboard
+
+def show_dashboard():
+    """Visualizza la dashboard principale"""
     st.title("📊 Dashboard")
+    dealers = tracker.get_dealers()
     
     # Stats globali
     total_cars = 0
@@ -171,7 +175,7 @@ else:
     with col4:
         st.metric("🔍 Targhe Mancanti", missing_plates)
         
-    # Lista concessionari nella dashboard
+    # Lista concessionari
     st.subheader("🏢 Concessionari Monitorati")
     for dealer in dealers:
         with st.expander(f"**{dealer['url'].split('/')[-1].upper()}** - {dealer['url']}", expanded=False):
@@ -184,7 +188,21 @@ else:
             else:
                 st.info("ℹ️ Nessun annuncio attivo")
 
+def main():
+    """Funzione principale dell'applicazione"""
+    # Sidebar e selezione concessionario
+    selected_dealer = sidebar.show_sidebar(tracker)
+    
+    # Main content
+    dealers = tracker.get_dealers()
+    
+    if not dealers:
+        st.title("👋 Benvenuto in Auto Tracker")
+        st.info("Aggiungi un concessionario per iniziare")
+    elif selected_dealer:
+        show_dealer_page(selected_dealer)
+    else:
+        show_dashboard()
+
 if __name__ == "__main__":
-    # Modern way to clear Streamlit cache
-    st.cache_data.clear()
-    st.cache_resource.clear()
+    main()
