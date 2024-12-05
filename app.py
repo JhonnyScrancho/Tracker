@@ -140,11 +140,9 @@ class AutoTrackerApp:
             self.show_settings()
         else:
             # Controlla la query string per determinare la pagina da mostrare
-            page = st.query_params.get("page")
             dealer_id = st.query_params.get("dealer_id")
 
-            if page == "settings":
-                # Mostra la pagina delle impostazioni
+            if dealer_id == "settings":  # Nuovo caso per le impostazioni
                 self.show_settings()
             elif dealer_id:
                 # Mostra la vista del dealer specifico

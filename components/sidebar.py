@@ -30,7 +30,8 @@ class Sidebar:
         
         # Bottone Impostazioni
         if st.sidebar.button("⚙️ Impostazioni", use_container_width=True):
-            st.query_params["page"] = "settings"
+            st.query_params.clear()  # Pulisce i parametri esistenti
+            st.query_params["dealer_id"] = "settings"  # Usa dealer_id=settings come trigger
             st.rerun()
         
         # Form aggiunta concessionario
