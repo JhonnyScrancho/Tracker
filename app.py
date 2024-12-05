@@ -29,13 +29,13 @@ st.markdown("""
         
         .dataframe {
             width: 100%;
-            margin: 0.5rem 0;
+            margin: 0.5em 0;
             border-collapse: collapse;
             font-size: 14px;
         }
         .dataframe th {
             background-color: #f8f9fa;
-            padding: 0;
+            padding: 2px;
             font-weight: 600;
             text-align: left;
             border-bottom: 2px solid #dee2e6;
