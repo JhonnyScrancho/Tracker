@@ -264,47 +264,68 @@ class AutoTracker:
             st.error(f"❌ Errore imprevisto: {str(e)}")
             return []
 
-    def get_listing_images(self, listing_url: str) -> list:
+    def get_listing_images(self, listing_url: str) -> List[Dict[str, float]]:
+        """
+        Recupera e analizza le immagini dell'annuncio, ordinandole per probabilità di contenere una targa.
+        """
         try:
-            st.write(f"📷 Recupero immagini da {listing_url}")
+            st.write("🔍 Analisi immagini annuncio...")
+            st.write(f"📍 URL: {listing_url}")
             
-            time.sleep(self.delay)
-            response = self.session.get(listing_url)
-            response.raise_for_status()
-            
-            soup = BeautifulSoup(response.text, 'lxml')
+            response = self._get_with_retry(listing_url)
+            if not response:
+                return []
+
+            soup = BeautifulSoup(response, 'lxml')
             images = []
 
-            # Prova diversi selettori in ordine
+            # Lista di selettori in ordine di specificità
             selectors = [
                 '.image-gallery-slides picture.ImageWithBadge_picture__XJG24 img',
-                '.image-gallery-slides img',  # Più generico
-                '.Gallery_gallery__ppyDW img', # Ancora più generico
-                'img[src*="/auto/"]'  # Fallback molto generico per immagini auto
+                '.image-gallery-slides img',
+                '.Gallery_gallery__ppyDW img',
+                'img[src*="/auto/"]'
             ]
 
+            st.write("📸 Raccolta immagini disponibili...")
+            # Raccoglie tutte le immagini uniche
+            found_urls = set()  # Per tenere traccia degli URL già processati
             for selector in selectors:
-                gallery_slides = soup.select(selector)
+                elements = soup.select(selector)
                 
-                for img in gallery_slides:
+                for idx, img in enumerate(elements, 1):
                     if img.get('src'):
                         img_url = img['src']
+                        # Normalizza URL per la massima qualità
                         base_url = re.sub(r'/\d+x\d+\.(webp|jpg)', '', img_url)
                         if not base_url.endswith('.jpg'):
                             base_url += '.jpg'
-                            
-                        if base_url not in images:
-                            images.append(base_url)
-                            st.write(f"✅ Trovata immagine: {base_url}")
+                                
+                        if base_url not in found_urls:
+                            found_urls.add(base_url)
+                            # Analizza la probabilità di contenere una targa
+                            st.write(f"Analisi immagine {len(found_urls)}...")
+                            plate_likelihood = self._analyze_image_for_plate_likelihood(base_url)
+                            images.append({
+                                'url': base_url,
+                                'plate_likelihood': plate_likelihood,
+                                'index': len(found_urls)
+                            })
 
-                # Se abbiamo trovato almeno 3 immagini, possiamo fermarci
-                if len(images) >= 3:
-                    break
+            st.write(f"\n📊 Totale immagini trovate: {len(images)}")
+            
+            # Ordina per probabilità e prendi le migliori 3
+            best_images = sorted(images, key=lambda x: x['plate_likelihood'], reverse=True)[:3]
+            
+            st.write("\n🏆 TOP 3 immagini selezionate:")
+            for i, img in enumerate(best_images, 1):
+                st.write(f"{i}. Immagine {img['index']} - Score: {img['plate_likelihood']:.2f}")
+                st.image(img['url'], caption=f"Immagine #{img['index']} (Score: {img['plate_likelihood']:.2f})", width=300)
 
-            return list(set(images[:3]))  # Ritorna max 3 immagini uniche
+            return best_images
 
         except Exception as e:
-            st.write(f"❌ Errore nel recupero immagini: {str(e)}")
+            st.error(f"❌ Errore nel recupero immagini: {str(e)}")
             return []
     
     def _extract_price(self, text):
