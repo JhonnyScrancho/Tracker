@@ -14,7 +14,7 @@ import numpy as np
 from vision_service import VisionService
 
 try:
-    from plate_detector import PlateDetector
+    from scrape.plate_detector import PlateDetector
 except ImportError:
     print("Warning: PlateDetector non disponibile. OCR targhe disabilitato.")
     PlateDetector = None
@@ -46,7 +46,19 @@ class AutoTracker:
         })
         self.last_request = 0
         self.delay = 3
-        self.vision = VisionService(st.secrets["XAI_API_KEY"])
+        
+        # Inizializzazione sicura del VisionService
+        try:
+            api_key = st.secrets.get("XAI_API_KEY")
+            if api_key:
+                self.vision = VisionService(api_key)
+                st.success("✅ Servizio Vision inizializzato correttamente")
+            else:
+                self.vision = None
+                st.warning("⚠️ Chiave API Vision non configurata - Il riconoscimento targhe sarà disabilitato")
+        except Exception as e:
+            self.vision = None
+            st.error(f"❌ Errore inizializzazione Vision: {str(e)}")
 
     def _wait_rate_limit(self):
         """Implementa rate limiting tra le richieste"""
