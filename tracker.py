@@ -1,3 +1,4 @@
+from typing import Dict, List
 from firebase_admin import credentials, initialize_app, firestore
 from bs4 import BeautifulSoup
 import requests
