@@ -428,6 +428,7 @@ class AutoTracker:
     def get_listing_images(self, listing_url: str) -> list:
         """
         Recupera e analizza le immagini dell'annuncio, ordinandole per probabilità di contenere una targa.
+        Limita il recupero alle prime 10 immagini per ottimizzare le performance.
         """
         try:
             st.write("🔍 Analisi immagini annuncio...")
@@ -439,6 +440,7 @@ class AutoTracker:
 
             soup = BeautifulSoup(response, 'lxml')
             images = []
+            MAX_IMAGES = 10
 
             # Lista di selettori in ordine di specificità
             selectors = [
@@ -448,13 +450,19 @@ class AutoTracker:
                 'img[src*="/auto/"]'
             ]
 
-            st.write("📸 Raccolta immagini disponibili...")
-            # Raccoglie tutte le immagini uniche
+            st.write(f"📸 Raccolta prime {MAX_IMAGES} immagini disponibili...")
             found_urls = set()  # Per tenere traccia degli URL già processati
+            
             for selector in selectors:
+                if len(found_urls) >= MAX_IMAGES:
+                    break
+                    
                 elements = soup.select(selector)
                 
-                for idx, img in enumerate(elements, 1):
+                for img in elements:
+                    if len(found_urls) >= MAX_IMAGES:
+                        break
+                        
                     if img.get('src'):
                         img_url = img['src']
                         # Normalizza URL per la massima qualità
@@ -465,7 +473,7 @@ class AutoTracker:
                         if base_url not in found_urls:
                             found_urls.add(base_url)
                             # Analizza la probabilità di contenere una targa
-                            st.write(f"Analisi immagine {len(found_urls)}...")
+                            st.write(f"Analisi immagine {len(found_urls)}/{MAX_IMAGES}...")
                             plate_likelihood = self._analyze_image_for_plate_likelihood(base_url)
                             images.append({
                                 'url': base_url,
