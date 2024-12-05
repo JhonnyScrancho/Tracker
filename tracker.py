@@ -3,7 +3,6 @@ from firebase_admin import credentials, initialize_app, firestore
 from bs4 import BeautifulSoup
 import requests
 from datetime import datetime
-import plate_detector
 import streamlit as st
 import pandas as pd
 import firebase_admin
@@ -13,11 +12,6 @@ import cv2
 import numpy as np
 from vision_service import VisionService
 
-try:
-    from scrape.plate_detector import PlateDetector
-except ImportError:
-    print("Warning: PlateDetector non disponibile. OCR targhe disabilitato.")
-    PlateDetector = None
 
 class AutoTracker:
     def __init__(self):
