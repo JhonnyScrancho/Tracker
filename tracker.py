@@ -100,10 +100,16 @@ class AutoTracker:
 
             st.write(f"🚗 Trovati {len(articles)} annunci da processare")
 
-            # Recupera gli ID degli annunci esistenti
+            # Recupera gli ID degli annunci esistenti e le loro immagini
             existing_listings = self.get_active_listings(dealer_id)
-            existing_ids = {listing['id'] for listing in existing_listings}
-            existing_plates = {listing.get('plate'): listing['id'] for listing in existing_listings if listing.get('plate')}
+            existing_data = {
+                listing['id']: {
+                    'image_urls': listing.get('image_urls', []),
+                    'plate': listing.get('plate'),
+                    'plate_likelihood_scores': listing.get('plate_likelihood_scores', [])
+                } 
+                for listing in existing_listings
+            }
 
             # Inizializza il detector una volta sola fuori dal ciclo
             plate_detector = PlateDetector() if PlateDetector is not None else None
@@ -114,12 +120,11 @@ class AutoTracker:
                     
                     # Identificazione annuncio
                     listing_id = article.get('id', '')
-                    is_existing = listing_id in existing_ids
+                    is_existing = listing_id in existing_data
                     
                     # Estrazione URL e titolo
                     url_elem = article.select_one('a.dp-link.dp-listing-item-title-wrapper')
                     if not url_elem or 'href' not in url_elem.attrs:
-                        # Prova selettore alternativo
                         url_elem = article.select_one('.dp-listing-item-title-wrapper a')
                         if not url_elem or 'href' not in url_elem.attrs:
                             st.warning("⚠️ URL non trovato per questo annuncio")
@@ -202,31 +207,32 @@ class AutoTracker:
                         elif 'l/100' in text or 'kwh/100' in text:
                             details['consumption'] = text
 
-                    # Gestione immagini e targa
-                    images = []
-                    plate = None
-
-                    # Per annunci esistenti, recupera solo informazioni base
+                    # Gestione immagini e targa per annunci esistenti o nuovi
                     if is_existing:
-                        st.info(f"ℹ️ Annuncio {listing_id} già presente, aggiorno solo i dati essenziali")
-                        # Usa la targa esistente se disponibile
-                        plate = existing_plates.get(listing_id)
+                        st.info(f"ℹ️ Annuncio {listing_id} già presente, mantengo dati esistenti")
+                        images = existing_data[listing_id]['image_urls']
+                        plate = existing_data[listing_id]['plate']
+                        plate_scores = existing_data[listing_id]['plate_likelihood_scores']
+                        st.write(f"📸 Mantenute {len(images)} immagini esistenti")
+                        if plate:
+                            st.write(f"🔢 Targa esistente: {plate}")
                     else:
-                        # Per nuovi annunci, recupera immagini e targa
+                        st.write("🆕 Nuovo annuncio, analizzo le immagini...")
+                        # Per nuovi annunci, recupera e analizza le immagini
                         images = self.get_listing_images(url)
+                        plate = None
+                        plate_scores = []
                         
-                        if images:
-                            st.write(f"📸 Recuperate {len(images)} immagini")
-                            if plate_detector:
-                                for img_url in images:
-                                    try:
-                                        if detected_plate := plate_detector.detect_with_retry(img_url):
-                                            plate = detected_plate
-                                            st.success(f"✅ Targa rilevata: {plate}")
-                                            break
-                                    except Exception as e:
-                                        st.warning(f"⚠️ Errore analisi immagine: {str(e)}")
-                                        continue
+                        if images and plate_detector:
+                            for img_url in images:
+                                try:
+                                    if detected_plate := plate_detector.detect_with_retry(img_url):
+                                        plate = detected_plate
+                                        st.success(f"✅ Targa rilevata: {plate}")
+                                        break
+                                except Exception as e:
+                                    st.warning(f"⚠️ Errore analisi immagine: {str(e)}")
+                                    continue
 
                     # Creazione dizionario annuncio
                     listing = {
@@ -239,7 +245,8 @@ class AutoTracker:
                         'has_discount': prices['has_discount'],
                         'discount_percentage': prices['discount_percentage'],
                         'dealer_id': dealer_id,
-                        'image_urls': [img for img in images] if images else [],
+                        'image_urls': images,
+                        'plate_likelihood_scores': plate_scores,
                         'mileage': details['mileage'],
                         'registration': details['registration'],
                         'power': details['power'],
@@ -256,10 +263,10 @@ class AutoTracker:
                 except Exception as e:
                     st.error(f"❌ Errore nel parsing dell'annuncio: {str(e)}")
                     continue
-                    
+                        
             st.success(f"🎉 Scraping completato. Trovati {len(listings)} annunci validi")
             return listings
-            
+                
         except requests.RequestException as e:
             st.error(f"❌ Errore nella richiesta HTTP: {str(e)}")
             return []
