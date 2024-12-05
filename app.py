@@ -228,75 +228,92 @@ class AutoTrackerApp:
 
     def show_home(self):
         """Mostra la home page"""
-        st.title("Dashboard")
+        st.title("🏠 Dashboard")
         
         dealers = self.tracker.get_dealers()
         if not dealers:
-            st.info("Aggiungi un concessionario per iniziare")
+            st.info("👋 Aggiungi un concessionario per iniziare")
             return
         
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Concessionari", len(dealers))
+        # Bottone aggiornamento massivo
+        if st.button("🔄 Aggiorna Tutti i Concessionari", use_container_width=False):
+            with st.status("⏳ Aggiornamento in corso...", expanded=True) as status:
+                try:
+                    total_listings = 0
+                    
+                    # Aggiorna ogni dealer
+                    for dealer in dealers:
+                        st.write(f"📥 Aggiornamento {dealer['url']}...")
+                        try:
+                            listings = self.tracker.scrape_dealer(dealer['url'])
+                            if listings:
+                                # Salva nuovi annunci
+                                self.tracker.save_listings(listings)
+                                # Marca inattivi quelli non più presenti
+                                self.tracker.mark_inactive_listings(dealer['id'], [l['id'] for l in listings])
+                                total_listings += len(listings)
+                                st.success(f"✅ Aggiornati {len(listings)} annunci per {dealer['url']}")
+                            else:
+                                st.warning(f"⚠️ Nessun annuncio trovato per {dealer['url']}")
+                        except Exception as e:
+                            st.error(f"❌ Errore per {dealer['url']}: {str(e)}")
+                            continue
+                    
+                    status.update(label=f"✅ Aggiornamento completato! Processati {total_listings} annunci totali", state="complete")
+                    
+                    # Aggiorna timestamp ultimo aggiornamento
+                    self.tracker.save_scheduler_config({
+                        'last_update': datetime.now()
+                    })
+                    
+                except Exception as e:
+                    status.update(label=f"❌ Errore durante l'aggiornamento: {str(e)}", state="error")
             
-        # Calcola totali
+        # Statistiche globali
         total_cars = 0
         total_value = 0
+        
         for dealer in dealers:
             listings = self.tracker.get_active_listings(dealer['id'])
             total_cars += len(listings)
             total_value += sum(l.get('original_price', 0) for l in listings if l.get('original_price'))
         
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("🏢 Concessionari", len(dealers))
         with col2:    
-            st.metric("Auto Totali", total_cars)
+            st.metric("🚗 Auto Totali", total_cars)
         with col3:
-            st.metric("Valore Totale", f"€{total_value:,.0f}".replace(",", "."))
-        
-        # Bottone aggiornamento più discreto
-        if st.button("Aggiorna Tutti", use_container_width=True):
-            with st.status("Aggiornamento in corso", expanded=True) as status:
-                try:
-                    total_listings = 0
-                    for dealer in dealers:
-                        try:
-                            listings = self.tracker.scrape_dealer(dealer['url'])
-                            if listings:
-                                self.tracker.save_listings(listings)
-                                self.tracker.mark_inactive_listings(dealer['id'], [l['id'] for l in listings])
-                                total_listings += len(listings)
-                                st.write(f"Aggiornati {len(listings)} annunci per {dealer['id']}")
-                        except Exception as e:
-                            st.error(f"Errore: {str(e)}")
-                            continue
-                    
-                    status.update(label=f"Completato - {total_listings} annunci aggiornati", state="complete")
-                    self.tracker.save_scheduler_config({'last_update': datetime.now()})
-                    
-                except Exception as e:
-                    status.update(label=f"Errore: {str(e)}", state="error")
-        
-        # Lista dealer
-        st.subheader("Concessionari Monitorati")
+            st.metric("💰 Valore Totale", f"€{total_value:,.0f}".replace(",", "."))
+            
+        # Lista dealers
+        st.subheader("🏢 Concessionari Monitorati")
         
         for dealer in dealers:
-            with st.expander(f"{dealer['url'].split('/')[-1]} - {dealer['url']}", expanded=False):
+            with st.expander(f"**{dealer['url'].split('/')[-1].upper()}** - {dealer['url']}", expanded=False):
                 if dealer.get('last_update'):
-                    st.caption(f"Aggiornato: {dealer['last_update'].strftime('%d/%m/%Y %H:%M')}")
-                
+                    st.caption(f"Ultimo aggiornamento: {dealer['last_update'].strftime('%d/%m/%Y %H:%M')}")
+                    
                 listings = self.tracker.get_active_listings(dealer['id'])
                 if listings:
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        dealer_value = sum(l.get('original_price', 0) for l in listings if l.get('original_price'))
-                        st.metric("Valore", f"€{dealer_value:,.0f}".replace(",", "."))
-                    with col2:
-                        st.metric("Annunci", len(listings))
+                    st.write(f"📊 {len(listings)} annunci attivi")
                     
-                    if st.button("Dettagli", key=f"view_{dealer['id']}", use_container_width=True):
+                    # Stats concessionario
+                    dealer_value = sum(l.get('original_price', 0) for l in listings if l.get('original_price'))
+                    missing_plates = len([l for l in listings if not l.get('plate')])
+                    
+                    cols = st.columns(3)
+                    with cols[0]:
+                        st.metric("💰 Valore Totale", f"€{dealer_value:,.0f}".replace(",", "."))
+                    with cols[1]:
+                        st.metric("🔍 Targhe Mancanti", missing_plates)
+                        
+                    # Bottone navigazione
+                    if st.button("🔍 Vedi Dettagli", key=f"view_{dealer['id']}", use_container_width=True):
                         st.query_params["dealer_id"] = dealer['id']
                         st.rerun()
                 else:
-                    st.info("Nessun annuncio attivo")
+                    st.info("ℹ️ Nessun annuncio attivo")
 
     def show_dealer_view(self, dealer_id):
         """Mostra la vista del dealer"""
