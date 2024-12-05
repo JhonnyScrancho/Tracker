@@ -33,7 +33,6 @@ class AutoTracker:
             cred = credentials.Certificate(cred_dict)
             initialize_app(cred)
         
-        # Database and session setup
         self.db = firestore.client()
         self.session = requests.Session()
         self.session.headers.update({
@@ -44,21 +43,18 @@ class AutoTracker:
         self.last_request = 0
         self.delay = 3
         
-        # Vision Service initialization
+        # Vision Service initialization with graceful fallback
+        self.vision = None
         try:
-            # Accesso diretto alla chiave XAI_API_KEY
-            api_key = st.secrets.XAI_API_KEY
-            if api_key:
+            if 'vision' in st.secrets and 'api_key' in st.secrets['vision']:
+                api_key = st.secrets['vision']['api_key']
                 self.vision = VisionService(api_key)
                 st.success("✅ Servizio Vision inizializzato correttamente")
-                print(f"Debug - API key trovata e inizializzata: {api_key[:10]}...")
             else:
-                raise ValueError("API key is None")
+                st.warning("⚠️ Configurazione Vision Service mancante - alcune funzionalità saranno disabilitate")
         except Exception as e:
-            self.vision = None
-            st.error(f"❌ Errore nell'accesso alla chiave API: {str(e)}")
-            print("Debug - Contenuto secrets:", {k: v[:10] if isinstance(v, str) else v for k, v in st.secrets.items()})
-
+            st.warning(f"⚠️ Vision Service non disponibile: {str(e)}")
+            
     def _wait_rate_limit(self):
         """Implementa rate limiting tra le richieste"""
         now = time.time()

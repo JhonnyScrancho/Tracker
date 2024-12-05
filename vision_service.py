@@ -7,13 +7,15 @@ from grok_vision import GrokVision
 import streamlit as st
 
 class VisionService:
-    def __init__(self, grok_api_key: str):
+    def __init__(self, api_key: str = None):
         """
-        Inizializza il servizio di visione
+        Inizializza il servizio di visione con gestione graceful della mancanza di API key
         Args:
-            grok_api_key: Chiave API Grok Vision
+            api_key: Chiave API opzionale per il servizio di visione
         """
-        self.grok = GrokVision(grok_api_key)
+        self.api_key = api_key
+        self.grok = GrokVision(api_key) if api_key else None
+        self.is_available = bool(api_key)
         
     def analyze_image_for_plate_likelihood(self, img_url: str) -> float:
         """
@@ -100,22 +102,31 @@ class VisionService:
 
     def analyze_vehicle_images(self, images: List[str]) -> Dict:
         """
-        Analizza le immagini di un veicolo con Grok Vision
+        Analizza le immagini di un veicolo con fallback su analisi locale se Grok non è disponibile
         """
         try:
             # Prioritizza le immagini
             best_images = self.prioritize_images(images)
             
-            # Analizza con Grok
-            st.write("🔍 Invio immagini a Grok Vision...")
-            results = self.grok.analyze_batch(best_images)
-            
-            if results and results.get('plate'):
-                st.success(f"✅ Targa rilevata: {results['plate']} (confidenza: {results['plate_confidence']:.2%})")
-            else:
-                st.warning("⚠️ Nessuna targa rilevata")
+            # Se Grok è disponibile, usa quello
+            if self.is_available and self.grok:
+                st.write("🔍 Invio immagini a Grok Vision...")
+                results = self.grok.analyze_batch(best_images)
                 
-            return results if results else {}
+                if results and results.get('plate'):
+                    st.success(f"✅ Targa rilevata: {results['plate']} (confidenza: {results['plate_confidence']:.2%})")
+                else:
+                    st.warning("⚠️ Nessuna targa rilevata")
+                    
+                return results if results else {}
+            
+            # Altrimenti usa solo l'analisi locale
+            st.info("ℹ️ Usando solo analisi locale delle immagini")
+            return {
+                'plate': None,
+                'plate_confidence': 0,
+                'best_images': best_images
+            }
             
         except Exception as e:
             st.error(f"❌ Errore analisi veicolo: {str(e)}")
