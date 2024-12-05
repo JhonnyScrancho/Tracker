@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Dict, List, Optional
 from firebase_admin import credentials, initialize_app, firestore
 from bs4 import BeautifulSoup
 import requests
@@ -265,6 +265,21 @@ class AutoTracker:
             st.error(f"❌ Errore imprevisto: {str(e)}")
             return []
 
+    def _get_with_retry(self, url: str, max_retries: int = 3) -> Optional[str]:
+        """Esegue una richiesta GET con retry"""
+        for attempt in range(max_retries):
+            try:
+                self._wait_rate_limit() # Usa il rate limiting esistente
+                response = self.session.get(url, timeout=30)
+                response.raise_for_status()
+                return response.text
+            except requests.RequestException as e:
+                if attempt == max_retries - 1:
+                    st.error(f"❌ Errore nella richiesta HTTP: {str(e)}")
+                    return None
+                time.sleep(2 ** attempt)  # Backoff esponenziale
+        return None
+    
     def get_listing_images(self, listing_url: str) -> List[Dict[str, float]]:
         """
         Recupera e analizza le immagini dell'annuncio, ordinandole per probabilità di contenere una targa.
