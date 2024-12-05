@@ -46,7 +46,7 @@ class AutoTracker:
         })
         self.last_request = 0
         self.delay = 3
-        self.vision = VisionService(st.secrets["grok"]["api_key"])
+        self.vision = VisionService(st.secrets["XAI_API_KEY"])
 
     def _wait_rate_limit(self):
         """Implementa rate limiting tra le richieste"""
