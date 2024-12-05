@@ -265,46 +265,44 @@ class AutoTracker:
             return []
 
     def get_listing_images(self, listing_url: str) -> list:
-        """
-        Recupera le immagini dalla pagina del singolo annuncio
-        
-        Args:
-            listing_url: URL completo dell'annuncio
-            
-        Returns:
-            Lista di URL delle immagini
-        """
         try:
             st.write(f"📷 Recupero immagini da {listing_url}")
             
-            # Aggiungi delay per evitare di sovraccaricare il server
             time.sleep(self.delay)
-            
-            # Scarica la pagina
             response = self.session.get(listing_url)
             response.raise_for_status()
             
-            # Parsing del contenuto
             soup = BeautifulSoup(response.text, 'lxml')
-            
-            # Cerca nella gallery
             images = []
-            gallery_slides = soup.select('.image-gallery-slides picture.ImageWithBadge_picture__XJG24 img')
-            
-            for img in gallery_slides:
-                if img.get('src'):
-                    img_url = img['src']
-                    # Normalizza URL rimuovendo dimensioni e webp
-                    base_url = re.sub(r'/\d+x\d+\.(webp|jpg)', '', img_url)
-                    if not base_url.endswith('.jpg'):
-                        base_url += '.jpg'
-                        
-                    if base_url not in images:
-                        images.append(base_url)
-                        st.write(f"✅ Trovata immagine: {base_url}")
 
-            return list(set(images))  # Rimuovi duplicati
-            
+            # Prova diversi selettori in ordine
+            selectors = [
+                '.image-gallery-slides picture.ImageWithBadge_picture__XJG24 img',
+                '.image-gallery-slides img',  # Più generico
+                '.Gallery_gallery__ppyDW img', # Ancora più generico
+                'img[src*="/auto/"]'  # Fallback molto generico per immagini auto
+            ]
+
+            for selector in selectors:
+                gallery_slides = soup.select(selector)
+                
+                for img in gallery_slides:
+                    if img.get('src'):
+                        img_url = img['src']
+                        base_url = re.sub(r'/\d+x\d+\.(webp|jpg)', '', img_url)
+                        if not base_url.endswith('.jpg'):
+                            base_url += '.jpg'
+                            
+                        if base_url not in images:
+                            images.append(base_url)
+                            st.write(f"✅ Trovata immagine: {base_url}")
+
+                # Se abbiamo trovato almeno 3 immagini, possiamo fermarci
+                if len(images) >= 3:
+                    break
+
+            return list(set(images[:3]))  # Ritorna max 3 immagini uniche
+
         except Exception as e:
             st.write(f"❌ Errore nel recupero immagini: {str(e)}")
             return []
