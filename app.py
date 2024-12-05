@@ -50,15 +50,15 @@ st.markdown("""
             background-color: #f5f5f5;
         }
         
-        .col-foto { width: 100px !important; padding: 5px !important; }
-        .col-id { width: 220px !important; font-family: monospace; }
-        .col-targa { width: 120px !important; text-align: center !important; }
-        .col-modello { min-width: 300px !important; }
-        .col-prezzo { width: 120px !important; text-align: right !important; }
-        .col-km { width: 120px !important; text-align: right !important; }
-        .col-data { width: 100px !important; text-align: center !important; }
-        .col-carburante { width: 100px !important; }
-        .col-link { width: 80px !important; text-align: center !important; }
+        .col-foto { width: 150px !important; padding: 5px !important; }
+        .col-id { width: auto !important; font-family: monospace; }
+        .col-targa { width: auto !important; text-align: center !important; }
+        .col-modello { min-width: auto !important; }
+        .col-prezzo { width: auto !important; text-align: right !important; }
+        .col-km { width: auto !important; text-align: right !important; }
+        .col-data { width: auto !important; text-align: center !important; }
+        .col-carburante { width: auto !important; }
+        .col-link { width: auto !important; text-align: center !important; }
         
         .table-img {
             width: 80px;
