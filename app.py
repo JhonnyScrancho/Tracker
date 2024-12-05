@@ -50,8 +50,8 @@ st.markdown("""
             background-color: #f5f5f5;
         }
         
-        .col-foto { width: 150px !important; padding: 5px !important; }
-        .col-id { width: auto !important; font-family: monospace; }
+        .col-foto { width: 300px !important; padding: 5px !important; }
+        .col-id { width: auto !important; font-family: monospace; font-size: 0.5em; }
         .col-targa { width: auto !important; text-align: center !important; }
         .col-modello { min-width: auto !important; }
         .col-prezzo { width: auto !important; text-align: right !important; }
