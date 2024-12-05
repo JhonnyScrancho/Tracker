@@ -10,7 +10,7 @@ import re
 import time
 import cv2
 import numpy as np
-from vision_service import VisionService
+from services.vision_service import VisionService
 
 
 class AutoTracker:
