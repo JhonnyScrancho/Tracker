@@ -2,6 +2,7 @@ import streamlit as st
 from tracker import AutoTracker
 import pandas as pd
 from datetime import datetime
+import time
 from utils import format_price, create_timeline_chart, create_price_history_chart
 
 st.set_page_config(
@@ -120,6 +121,14 @@ st.markdown("""
             font-weight: bold;
             margin-right: 5px;
         }
+        
+        /* Stili per targhe modificate */
+        .plate-edited {
+            background-color: #e8f5e9;
+            padding: 2px 6px;
+            border-radius: 4px;
+            border: 1px solid #81c784;
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -169,7 +178,6 @@ def main():
                             with st.spinner("⏳ Aggiornamento in corso..."):
                                 listings = tracker.scrape_dealer(dealer['url'])
                                 if listings:
-                                    # Assicurati che ogni annuncio abbia il dealer_id
                                     for listing in listings:
                                         listing['dealer_id'] = dealer['id']
                                     
@@ -197,29 +205,70 @@ def main():
             listings = tracker.get_active_listings(dealer['id'])
             
             if listings:
+                st.write("### 📋 Lista Annunci")
+                
+                for idx, listing in enumerate(listings):
+                    with st.expander(f"🚗 {listing['title']} - Targa: {listing.get('plate', 'N/D')}", expanded=False):
+                        col1, col2, col3 = st.columns([2,2,1])
+                        
+                        with col1:
+                            if listing.get('image_urls') and len(listing['image_urls']) > 0:
+                                st.image(listing['image_urls'][0], width=200)
+                            
+                        with col2:
+                            st.write(f"**ID Annuncio:** {listing['id']}")
+                            st.write(f"**Prezzo:** {format_price(listing['original_price'])}")
+                            if listing.get('has_discount'):
+                                st.write(f"**Prezzo Scontato:** {format_price(listing['discounted_price'])}")
+                            st.write(f"**Km:** {listing.get('mileage', 'N/D')}")
+                            
+                            # Form per modifica targa
+                            new_plate = st.text_input(
+                                "Targa",
+                                value=listing.get('plate', ''),
+                                key=f"plate_input_{listing['id']}"
+                            )
+                            
+                            if new_plate != listing.get('plate', ''):
+                                if st.button("💾 Salva Modifica", key=f"save_plate_{listing['id']}"):
+                                    if tracker.update_plate(listing['id'], new_plate):
+                                        st.success("✅ Targa aggiornata con successo!")
+                                        time.sleep(1)  # Piccola pausa per mostrare il messaggio
+                                        st.rerun()
+                                    else:
+                                        st.error("❌ Errore nell'aggiornamento della targa")
+                            
+                            if listing.get('plate_edited'):
+                                st.info(f"📝 Targa modificata il: {listing['plate_edit_date'].strftime('%d/%m/%Y %H:%M')}")
+                        
+                        with col3:
+                            if listing.get('url'):
+                                st.markdown(f"[🔗 Vedi Annuncio]({listing['url']})")
+
                 try:
                     df = pd.DataFrame(listings)
                     
-                    # Formattazione immagine
+                    # Formattazione elementi del DataFrame
                     df['thumbnail'] = df['image_urls'].apply(
                         lambda x: f'<img src="{x[0]}" class="table-img" alt="Auto">' if x and len(x) > 0 else '❌'
                     )
                     
-                    # Formattazione ID annuncio
                     df['listing_id'] = df['id'].apply(
                         lambda x: f'<span class="listing-id">{x}</span>'
                     )
                     
-                    # Formattazione prezzi
+                    df['targa'] = df.apply(
+                        lambda row: f"{row.get('plate', 'N/D')} ✏️" if row.get('plate_edited') else row.get('plate', 'N/D'),
+                        axis=1
+                    )
+                    
                     df['prezzo'] = df['original_price'].apply(format_price)
                     df['prezzo_scontato'] = df['discounted_price'].apply(format_price)
                     
-                    # Formattazione chilometri
                     df['km'] = df['mileage'].apply(
                         lambda x: f"{x:,.0f} km".replace(",", ".") if pd.notna(x) else "N/D"
                     )
                     
-                    # Link
                     df['link'] = df['url'].apply(
                         lambda x: f'<a href="{x}" target="_blank">🔗 Vedi</a>' if pd.notna(x) else ''
                     )
@@ -228,7 +277,7 @@ def main():
                     display_columns = {
                         'thumbnail': 'Foto',
                         'listing_id': 'ID Annuncio',
-                        'plate': 'Targa',
+                        'targa': 'Targa',
                         'title': 'Modello',
                         'prezzo': 'Prezzo',
                         'prezzo_scontato': 'Prezzo Scontato',
@@ -240,12 +289,10 @@ def main():
                         'link': 'Link'
                     }
                     
-                    # Filtra solo le colonne disponibili
                     available_columns = [col for col in display_columns.keys() if col in df.columns]
                     display_df = df[available_columns].copy()
                     display_df.columns = [display_columns[col] for col in available_columns]
                     
-                    # Visualizzazione tabella
                     st.write(
                         display_df.to_html(
                             escape=False,
@@ -255,103 +302,19 @@ def main():
                         unsafe_allow_html=True
                     )
                     
-                    # Visualizzazione dettagliata stile AutoScout24
-                    with st.expander("📸 Dettagli Annunci", expanded=False):
-                        for listing in listings:
-                            st.markdown("""
-                                <div class="car-card">
-                            """, unsafe_allow_html=True)
-                            
-                            cols = st.columns([2, 3])
-                            
-                            with cols[0]:
-                                if listing.get('image_urls') and len(listing['image_urls']) > 0:
-                                    try:
-                                        img = listing['image_urls'][0]
-                                        st.image(img, use_column_width=True)
-                                        # Bottone per espandere l'immagine
-                                        if st.button("🔍 Espandi", key=f"expand_{listing['id']}"):
-                                            with st.expander("Immagine Grande", expanded=True):
-                                                st.image(img, use_column_width=True)
-                                                # Mostra tutte le altre immagini se disponibili
-                                                if len(listing['image_urls']) > 1:
-                                                    st.write("Altre immagini:")
-                                                    for additional_img in listing['image_urls'][1:]:
-                                                        st.image(additional_img, use_column_width=True)
-                                    except Exception as e:
-                                        st.error(f"Errore nel caricamento dell'immagine: {str(e)}")
-                                else:
-                                    st.write("Nessuna immagine disponibile")
-                            
-                            with cols[1]:
-                                st.markdown(f"### {listing['title']}")
-                                st.markdown(f"**ID:** `{listing['id']}`")
-                                
-                                # Visualizzazione prezzi migliorata
-                                price_html = '<div class="price-section">'
-                                
-                                if listing.get('has_discount') and listing.get('discounted_price'):
-                                    price_html += f'''
-                                        <span class="price-tag">{format_price(listing['discounted_price'])}</span>
-                                        <span class="discount-price">{format_price(listing['original_price'])}</span>
-                                    '''
-                                    if listing.get('discount_percentage'):
-                                        price_html += f'<span class="discount-badge">-{listing["discount_percentage"]}%</span>'
-                                else:
-                                    price_html += f'<span class="price-tag">{format_price(listing["original_price"])}</span>'
-                                
-                                price_html += '</div>'
-                                st.markdown(price_html, unsafe_allow_html=True)
-                                
-                                # Dettagli in due colonne
-                                detail_cols = st.columns(2)
-                                
-                                with detail_cols[0]:
-                                    if listing.get('mileage'):
-                                        st.markdown(f"**Chilometraggio**: {listing['mileage']:,d} km".replace(",", "."))
-                                    if listing.get('registration'):
-                                        st.markdown(f"**Immatricolazione**: {listing['registration']}")
-                                    if listing.get('transmission'):
-                                        st.markdown(f"**Cambio**: {listing['transmission']}")
-                                
-                                with detail_cols[1]:
-                                    if listing.get('fuel'):
-                                        st.markdown(f"**Alimentazione**: {listing['fuel']}")
-                                    if listing.get('power'):
-                                        st.markdown(f"**Potenza**: {listing['power']}")
-                                    if listing.get('consumption'):
-                                        st.markdown(f"**Consumi**: {listing['consumption']}")
-                                
-                                # Link all'annuncio
-                                if listing.get('url'):
-                                    st.markdown(f"""
-                                        <a href="{listing['url']}" target="_blank" 
-                                           style="display: inline-block; 
-                                                  padding: 8px 16px; 
-                                                  background-color: #4CAF50; 
-                                                  color: white; 
-                                                  text-decoration: none; 
-                                                  border-radius: 4px; 
-                                                  margin-top: 10px;">
-                                            Vedi Annuncio Completo
-                                        </a>
-                                    """, unsafe_allow_html=True)
-                            
-                            st.markdown("</div>", unsafe_allow_html=True)
-                        
-                        # Grafici storici
-                        history = tracker.get_listing_history(dealer['id'])
-                        if history:
-                            st.subheader("📊 Analisi Storica")
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                timeline = create_timeline_chart(history)
-                                if timeline:
-                                    st.plotly_chart(timeline, use_container_width=True)
-                            with col2:
-                                price_history = create_price_history_chart(history)
-                                if price_history:
-                                    st.plotly_chart(price_history, use_container_width=True)
+                    # Grafici storici
+                    history = tracker.get_listing_history(dealer['id'])
+                    if history:
+                        st.subheader("📊 Analisi Storica")
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            timeline = create_timeline_chart(history)
+                            if timeline:
+                                st.plotly_chart(timeline, use_container_width=True)
+                        with col2:
+                            price_history = create_price_history_chart(history)
+                            if price_history:
+                                st.plotly_chart(price_history, use_container_width=True)
                 except Exception as e:
                     st.error(f"Errore nella creazione del DataFrame: {str(e)}")
                     st.write("Debug - Struttura dati listing:", listings[0].keys() if listings else "No listings")

@@ -763,6 +763,37 @@ class AutoTracker:
             print(f"Errore nel recupero degli annunci: {str(e)}")
             return []
         
+    def update_plate(self, listing_id: str, new_plate: str):
+        """
+        Aggiorna la targa di un annuncio nel database
+        
+        Args:
+            listing_id: ID dell'annuncio
+            new_plate: Nuova targa
+        """
+        try:
+            # Aggiorna il documento
+            self.db.collection('listings').document(listing_id).update({
+                'plate': new_plate,
+                'plate_edited': True,
+                'plate_edit_date': datetime.now()
+            })
+            
+            # Registra la modifica nello storico
+            history_ref = self.db.collection('history').document()
+            history_data = {
+                'listing_id': listing_id,
+                'date': datetime.now(),
+                'event': 'plate_edit',
+                'new_plate': new_plate
+            }
+            history_ref.set(history_data)
+            
+            return True
+        except Exception as e:
+            st.error(f"❌ Errore nell'aggiornamento della targa: {str(e)}")
+            return False
+    
     def validate_image_url(self, url: str) -> bool:
         """Verifica che l'URL dell'immagine sia valido e accessibile"""
         try:
