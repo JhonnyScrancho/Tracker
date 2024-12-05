@@ -38,6 +38,8 @@ st.markdown("""
         .dataframe {
             width: 100%;
             margin: 1rem 0;
+            border-collapse: collapse;
+            font-size: 14px;
         }
         .dataframe th {
             background-color: #f8f9fa;
@@ -45,6 +47,7 @@ st.markdown("""
             font-weight: 600;
             text-align: left;
             border-bottom: 2px solid #dee2e6;
+            white-space: nowrap;
         }
         .dataframe td {
             padding: 8px;
@@ -54,6 +57,46 @@ st.markdown("""
         .dataframe tr:hover {
             background-color: #f5f5f5;
         }
+        
+        /* Stili colonne specifiche */
+        .col-foto { 
+            width: 100px !important;
+            padding: 5px !important;
+        }
+        .col-id { 
+            width: 220px !important;
+            font-family: monospace;
+        }
+        .col-targa { 
+            width: 120px !important;
+            text-align: center !important;
+        }
+        .col-modello { 
+            min-width: 300px !important;
+        }
+        .col-prezzo { 
+            width: 120px !important;
+            text-align: right !important;
+        }
+        .col-km { 
+            width: 120px !important;
+            text-align: right !important;
+        }
+        .col-data { 
+            width: 100px !important;
+            text-align: center !important;
+        }
+        .col-carburante { 
+            width: 100px !important;
+        }
+        .col-cambio { 
+            width: 100px !important;
+        }
+        .col-link { 
+            width: 80px !important;
+            text-align: center !important;
+        }
+        
         .table-img {
             width: 80px;
             height: 60px;
@@ -69,65 +112,40 @@ st.markdown("""
             color: #374151;
         }
         
-        /* Stili car card esistenti */
-        .car-card {
-            background-color: white;
-            border-radius: 10px;
-            padding: 20px;
-            margin: 10px 0;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .price-section {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin: 10px 0;
-        }
-        .price-tag {
-            font-size: 1.5em;
-            font-weight: bold;
-            color: #4CAF50;
-        }
-        .discount-price {
-            font-size: 1.2em;
-            color: #666;
-            text-decoration: line-through;
-        }
-        .discount-badge {
-            background-color: #f44336;
-            color: white;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 0.9em;
-            font-weight: bold;
-        }
-        .car-details {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-            margin: 10px 0;
-        }
-        .car-image {
-            border-radius: 5px;
-            width: 100%;
-            height: auto;
-        }
-        .detail-item {
-            display: flex;
-            align-items: center;
-            margin: 5px 0;
-        }
-        .detail-label {
-            font-weight: bold;
-            margin-right: 5px;
-        }
-        
         /* Stili per targhe modificate */
         .plate-edited {
             background-color: #e8f5e9;
             padding: 2px 6px;
             border-radius: 4px;
             border: 1px solid #81c784;
+        }
+        
+        /* Input targa in tabella */
+        .targa-input {
+            width: 100px;
+            text-align: center;
+            padding: 4px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .targa-input:focus {
+            border-color: #80bdff;
+            outline: 0;
+            box-shadow: 0 0 0 0.2rem rgba(0,123,255,.25);
+        }
+        
+        /* Bottone salva */
+        .save-button {
+            padding: 2px 8px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .save-button:hover {
+            background: #45a049;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -205,72 +223,52 @@ def main():
             listings = tracker.get_active_listings(dealer['id'])
             
             if listings:
-                st.write("### 📋 Lista Annunci")
-                
-                for idx, listing in enumerate(listings):
-                    with st.expander(f"🚗 {listing['title']} - Targa: {listing.get('plate', 'N/D')}", expanded=False):
-                        col1, col2, col3 = st.columns([2,2,1])
-                        
-                        with col1:
-                            if listing.get('image_urls') and len(listing['image_urls']) > 0:
-                                st.image(listing['image_urls'][0], width=200)
-                            
-                        with col2:
-                            st.write(f"**ID Annuncio:** {listing['id']}")
-                            st.write(f"**Prezzo:** {format_price(listing['original_price'])}")
-                            if listing.get('has_discount'):
-                                st.write(f"**Prezzo Scontato:** {format_price(listing['discounted_price'])}")
-                            st.write(f"**Km:** {listing.get('mileage', 'N/D')}")
-                            
-                            # Form per modifica targa
-                            new_plate = st.text_input(
-                                "Targa",
-                                value=listing.get('plate', ''),
-                                key=f"plate_input_{listing['id']}"
-                            )
-                            
-                            if new_plate != listing.get('plate', ''):
-                                if st.button("💾 Salva Modifica", key=f"save_plate_{listing['id']}"):
-                                    if tracker.update_plate(listing['id'], new_plate):
-                                        st.success("✅ Targa aggiornata con successo!")
-                                        time.sleep(1)  # Piccola pausa per mostrare il messaggio
-                                        st.rerun()
-                                    else:
-                                        st.error("❌ Errore nell'aggiornamento della targa")
-                            
-                            if listing.get('plate_edited'):
-                                st.info(f"📝 Targa modificata il: {listing['plate_edit_date'].strftime('%d/%m/%Y %H:%M')}")
-                        
-                        with col3:
-                            if listing.get('url'):
-                                st.markdown(f"[🔗 Vedi Annuncio]({listing['url']})")
-
                 try:
                     df = pd.DataFrame(listings)
                     
-                    # Formattazione elementi del DataFrame
+                    # Formattazione immagine
                     df['thumbnail'] = df['image_urls'].apply(
-                        lambda x: f'<img src="{x[0]}" class="table-img" alt="Auto">' if x and len(x) > 0 else '❌'
+                        lambda x: f'<div class="col-foto"><img src="{x[0]}" class="table-img" alt="Auto"></div>' if x and len(x) > 0 else '❌'
                     )
                     
+                    # Formattazione ID annuncio
                     df['listing_id'] = df['id'].apply(
-                        lambda x: f'<span class="listing-id">{x}</span>'
+                        lambda x: f'<div class="col-id"><span class="listing-id">{x}</span></div>'
                     )
                     
+                    # Input targa con pulsante salva
                     df['targa'] = df.apply(
-                        lambda row: f"{row.get('plate', 'N/D')} ✏️" if row.get('plate_edited') else row.get('plate', 'N/D'),
+                        lambda row: st.text_input(
+                            "Targa",
+                            value=row.get('plate', ''),
+                            key=f"plate_{row['id']}",
+                            label_visibility="collapsed"
+                        ) + (
+                            st.button(
+                                "💾",
+                                key=f"save_{row['id']}",
+                                help="Salva targa",
+                                on_click=lambda: tracker.update_plate(
+                                    row['id'],
+                                    st.session_state[f"plate_{row['id']}"]
+                                ) and time.sleep(0.5) and st.rerun()
+                            ) if st.session_state.get(f"plate_{row['id']}") != row.get('plate', '') else ""
+                        ),
                         axis=1
                     )
                     
-                    df['prezzo'] = df['original_price'].apply(format_price)
-                    df['prezzo_scontato'] = df['discounted_price'].apply(format_price)
-                    
+                    # Altre formattazioni
+                    df['title'] = df['title'].apply(lambda x: f'<div class="col-modello">{x}</div>')
+                    df['prezzo'] = df['original_price'].apply(lambda x: f'<div class="col-prezzo">{format_price(x)}</div>')
+                    df['prezzo_scontato'] = df['discounted_price'].apply(lambda x: f'<div class="col-prezzo">{format_price(x)}</div>')
                     df['km'] = df['mileage'].apply(
-                        lambda x: f"{x:,.0f} km".replace(",", ".") if pd.notna(x) else "N/D"
+                        lambda x: f'<div class="col-km">{x:,.0f} km</div>'.replace(",", ".") if pd.notna(x) else "N/D"
                     )
-                    
+                    df['registration'] = df['registration'].apply(lambda x: f'<div class="col-data">{x}</div>' if pd.notna(x) else "N/D")
+                    df['fuel'] = df['fuel'].apply(lambda x: f'<div class="col-carburante">{x}</div>' if pd.notna(x) else "N/D")
+                    df['transmission'] = df['transmission'].apply(lambda x: f'<div class="col-cambio">{x}</div>' if pd.notna(x) else "N/D")
                     df['link'] = df['url'].apply(
-                        lambda x: f'<a href="{x}" target="_blank">🔗 Vedi</a>' if pd.notna(x) else ''
+                        lambda x: f'<div class="col-link"><a href="{x}" target="_blank">🔗 Vedi</a></div>' if pd.notna(x) else ''
                     )
                     
                     # Selezione e rinomina colonne
@@ -293,6 +291,7 @@ def main():
                     display_df = df[available_columns].copy()
                     display_df.columns = [display_columns[col] for col in available_columns]
                     
+                    # Visualizzazione tabella
                     st.write(
                         display_df.to_html(
                             escape=False,
@@ -301,6 +300,42 @@ def main():
                         ),
                         unsafe_allow_html=True
                     )
+                    
+                    # Aggiungi JavaScript per la gestione del salvataggio
+                    st.markdown("""
+                        <script>
+                        function savePlate(listingId) {
+                            const input = document.getElementById('plate_' + listingId);
+                            const newPlate = input.value;
+                            
+                            // Usa l'API di Streamlit per comunicare con il backend
+                            window.parent.postMessage({
+                                type: 'streamlit:setComponentValue',
+                                value: {
+                                    listingId: listingId,
+                                    newPlate: newPlate
+                                }
+                            }, '*');
+                            
+                            // Nascondi il pulsante di salvataggio
+                            input.nextElementSibling.style.display = 'none';
+                        }
+                        </script>
+                    """, unsafe_allow_html=True)
+                    
+                    # Gestione del salvataggio
+                    if 'plate_edit_data' in st.session_state:
+                        listing_id = st.session_state.plate_edit_data['listingId']
+                        new_plate = st.session_state.plate_edit_data['newPlate']
+                        
+                        if tracker.update_plate(listing_id, new_plate):
+                            st.success(f"✅ Targa aggiornata con successo: {new_plate}")
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error("❌ Errore nell'aggiornamento della targa")
+                        
+                        del st.session_state.plate_edit_data
                     
                     # Grafici storici
                     history = tracker.get_listing_history(dealer['id'])
