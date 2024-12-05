@@ -130,6 +130,9 @@ class AutoTrackerApp:
         # Inizializza il tracker
         dealers = self.tracker.get_dealers()
 
+        # Controlla scheduler
+        self.check_scheduler()
+        
         # Mostra la sidebar
         selected_dealer = show_sidebar(self.tracker)
 
@@ -154,6 +157,21 @@ class AutoTrackerApp:
 
             # Gestione notifiche in session state
             self._handle_notifications()
+
+    # Footer con info aggiornamento
+    st.divider()
+    with st.container():
+        col1, col2 = st.columns(2)
+        with col1:
+            if self.tracker.get_scheduler_config().get('enabled'):
+                st.caption("🤖 Aggiornamento automatico attivo")
+            else:
+                st.caption("🤖 Aggiornamento automatico disattivato")
+        
+        with col2:
+            last_update = self.tracker.get_scheduler_config().get('last_update')
+            if last_update:
+                st.caption(f"📅 Ultimo aggiornamento: {last_update.strftime('%d/%m/%Y %H:%M')}")
 
     def show_home(self):
         """Mostra la home page"""
