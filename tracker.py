@@ -117,7 +117,7 @@ class AutoTracker:
             }
 
             # Inizializza il servizio di visione
-            vision_service = VisionService(st.secrets.get("grok", {}).get("api_key"))
+            vision_service = VisionService(st.secrets["XAI_API_KEY"])
 
             for idx, article in enumerate(articles, 1):
                 try:
