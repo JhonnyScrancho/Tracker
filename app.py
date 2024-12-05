@@ -1,9 +1,13 @@
 import streamlit as st
+import sys
+from pathlib import Path
+
+# Aggiungi la directory root al PYTHONPATH
+root_dir = Path(__file__).parent
+sys.path.append(str(root_dir))
+
+from components.sidebar import show_sidebar
 from services.tracker import AutoTracker
-from pages.home import HomePage
-from pages.dealer_view import DealerView
-from pages.settings import SettingsPage
-from components import sidebar
 
 st.set_page_config(
     page_title="Auto Tracker",
@@ -128,35 +132,191 @@ class AutoTrackerApp:
         dealers = self.tracker.get_dealers()
 
         # Mostra la sidebar
-        selected_dealer = sidebar.show_sidebar(self.tracker)
+        selected_dealer = show_sidebar(self.tracker)
 
         # Main content
         if not dealers:
             # Prima esecuzione - mostra welcome page
             st.title("👋 Benvenuto in Auto Tracker")
             st.info("Aggiungi un concessionario nella sezione impostazioni per iniziare")
-            settings = SettingsPage()
-            settings.show()
+            self.show_settings()
         else:
             # Controlla la query string per determinare la pagina da mostrare
-            page = st.query_params.get("page", "home")
             dealer_id = st.query_params.get("dealer_id")
 
             if dealer_id:
-                # Mostra la pagina del dealer specifico
-                dealer_view = DealerView()
-                dealer_view.show()
-            elif page == "settings":
-                # Mostra la pagina impostazioni
-                settings = SettingsPage()
-                settings.show()
+                # Mostra la vista del dealer specifico
+                self.show_dealer_view(dealer_id)
             else:
-                # Mostra la home page di default
-                home = HomePage()
-                home.show()
+                # Mostra la home page
+                self.show_home()
 
             # Gestione notifiche in session state
             self._handle_notifications()
+
+    def show_home(self):
+        """Mostra la home page"""
+        st.title("🏠 Dashboard")
+        
+        dealers = self.tracker.get_dealers()
+        if not dealers:
+            st.info("👋 Aggiungi un concessionario per iniziare")
+            return
+            
+        # Statistiche globali
+        total_cars = 0
+        total_value = 0
+        
+        for dealer in dealers:
+            listings = self.tracker.get_active_listings(dealer['id'])
+            total_cars += len(listings)
+            total_value += sum(l.get('original_price', 0) for l in listings if l.get('original_price'))
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("🏢 Concessionari", len(dealers))
+        with col2:    
+            st.metric("🚗 Auto Totali", total_cars)
+        with col3:
+            st.metric("💰 Valore Totale", f"€{total_value:,.0f}".replace(",", "."))
+            
+        # Lista dealers
+        st.subheader("🏢 Concessionari Monitorati")
+        
+        for dealer in dealers:
+            with st.expander(f"**{dealer['url'].split('/')[-1].upper()}** - {dealer['url']}", expanded=False):
+                if dealer.get('last_update'):
+                    st.caption(f"Ultimo aggiornamento: {dealer['last_update'].strftime('%d/%m/%Y %H:%M')}")
+                    
+                listings = self.tracker.get_active_listings(dealer['id'])
+                if listings:
+                    st.write(f"📊 {len(listings)} annunci attivi")
+                    
+                    # Stats concessionario
+                    dealer_value = sum(l.get('original_price', 0) for l in listings if l.get('original_price'))
+                    missing_plates = len([l for l in listings if not l.get('plate')])
+                    
+                    cols = st.columns(3)
+                    with cols[0]:
+                        st.metric("💰 Valore Totale", f"€{dealer_value:,.0f}".replace(",", "."))
+                    with cols[1]:
+                        st.metric("🔍 Targhe Mancanti", missing_plates)
+                        
+                    # Bottone navigazione
+                    if st.button("🔍 Vedi Dettagli", key=f"view_{dealer['id']}", use_container_width=True):
+                        st.query_params["dealer_id"] = dealer['id']
+                        st.rerun()
+                else:
+                    st.info("ℹ️ Nessun annuncio attivo")
+
+    def show_dealer_view(self, dealer_id):
+        """Mostra la vista del dealer"""
+        from components import stats, plate_editor, filters, tables
+        
+        # Recupera dealer
+        dealers = self.tracker.get_dealers()
+        dealer = next((d for d in dealers if d['id'] == dealer_id), None)
+        
+        if not dealer:
+            st.error("❌ Concessionario non trovato")
+            return
+            
+        # Header
+        st.title(f"🏢 {dealer['url'].split('/')[-1].upper()}")
+        st.caption(dealer['url'])
+        
+        if dealer.get('last_update'):
+            st.info(f"📅 Ultimo aggiornamento: {dealer['last_update'].strftime('%d/%m/%Y %H:%M')}")
+            
+        # Bottone aggiorna
+        if st.button("🔄 Aggiorna Annunci", use_container_width=True):
+            with st.status("⏳ Aggiornamento in corso...", expanded=True) as status:
+                try:
+                    listings = self.tracker.scrape_dealer(dealer['url'])
+                    if listings:
+                        for listing in listings:
+                            listing['dealer_id'] = dealer['id']
+                        self.tracker.save_listings(listings)
+                        self.tracker.mark_inactive_listings(dealer['id'], [l['id'] for l in listings])
+                        status.update(label="✅ Aggiornamento completato!", state="complete")
+                        st.rerun()
+                    else:
+                        status.update(label="⚠️ Nessun annuncio trovato", state="error")
+                except Exception as e:
+                    status.update(label=f"❌ Errore: {str(e)}", state="error")
+                    
+        # Statistiche dealer
+        stats.show_dealer_overview(self.tracker, dealer_id)
+        
+        # Filtri
+        active_filters = filters.show_filters()
+        
+        # Lista annunci
+        listings = self.tracker.get_active_listings(dealer_id)
+        if listings:
+            # Applica filtri
+            if active_filters:
+                if active_filters.get('min_price'):
+                    listings = [l for l in listings if l.get('original_price', 0) >= active_filters['min_price']]
+                if active_filters.get('max_price'):
+                    listings = [l for l in listings if l.get('original_price', 0) <= active_filters['max_price']]
+                if active_filters.get('missing_plates_only'):
+                    listings = [l for l in listings if not l.get('plate')]
+                
+            # Tabella annunci
+            tables.show_listings_table(listings)
+            
+            # Editor targhe
+            plate_editor.show_plate_editor(self.tracker, listings)
+            
+            # Grafici
+            stats.show_dealer_insights(self.tracker, dealer_id)
+        else:
+            st.warning("⚠️ Nessun annuncio attivo")
+
+    def show_settings(self):
+        """Mostra la pagina impostazioni"""
+        st.title("⚙️ Impostazioni")
+        
+        # Form aggiunta dealer
+        st.header("➕ Aggiungi Concessionario")
+        with st.form("add_dealer"):
+            url = st.text_input(
+                "URL Concessionario",
+                placeholder="https://www.autoscout24.it/concessionari/esempio"
+            )
+            
+            if st.form_submit_button("Aggiungi", use_container_width=True):
+                try:
+                    dealer_id = url.split('/')[-1]
+                    if not dealer_id:
+                        st.error("❌ URL non valido")
+                    else:
+                        self.tracker.save_dealer(dealer_id, url)
+                        st.success("✅ Concessionario aggiunto")
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Errore: {str(e)}")
+                    
+        # Lista dealers
+        dealers = self.tracker.get_dealers()
+        if dealers:
+            st.header("📋 Concessionari Attivi")
+            
+            for dealer in dealers:
+                with st.expander(dealer['url']):
+                    st.write(f"ID: {dealer['id']}")
+                    if dealer.get('last_update'):
+                        st.caption(f"Ultimo aggiornamento: {dealer['last_update'].strftime('%d/%m/%Y %H:%M')}")
+                        
+                    col1, col2 = st.columns([3,1])
+                    with col2:
+                        if st.button("❌ Rimuovi", key=f"remove_{dealer['id']}", use_container_width=True):
+                            confirm = st.checkbox("Conferma rimozione", key=f"confirm_{dealer['id']}")
+                            if confirm:
+                                self.tracker.remove_dealer(dealer['id'])
+                                st.success("✅ Concessionario rimosso")
+                                st.rerun()
 
     def _handle_notifications(self):
         """Gestisce le notifiche pendenti"""
