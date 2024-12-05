@@ -73,10 +73,8 @@ st.markdown("""
         }
         .listing-id {
             font-family: monospace;
-            background-color: #f3f4f6;
             border-radius: 4px;
             font-size: 0.8em;
-            color: #374151;
         }
 
         /* Stili per la sidebar */

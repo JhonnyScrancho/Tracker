@@ -109,21 +109,12 @@ class AutoTracker:
             st.write(f"🚗 Trovati {len(articles)} annunci da processare")
 
             # Recupera gli annunci esistenti e loro dati
-            existing_listings = self.get_active_listings(dealer_id)
-            existing_data = {
-                listing['id']: {
-                    'image_urls': listing.get('image_urls', []),
-                    'plate': listing.get('plate'),
-                    'plate_confidence': listing.get('plate_confidence', 0),
-                    'vehicle_type': listing.get('vehicle_type'),
-                    'last_plate_analysis': listing.get('last_plate_analysis'),
-                    'vision_cache': listing.get('vision_cache', {})
-                } 
-                for listing in existing_listings
-            }
+            existing_listings = {l['id']: l for l in self.get_active_listings(dealer_id)}
 
-            # Inizializza il servizio di visione
-            vision_service = VisionService(st.secrets["vision"]["api_key"])
+            # Inizializza il servizio di visione solo se necessario
+            vision_service = None
+            if self.vision and 'vision' in st.secrets and 'api_key' in st.secrets['vision']:
+                vision_service = VisionService(st.secrets["vision"]["api_key"])
 
             for idx, article in enumerate(articles, 1):
                 try:
@@ -131,7 +122,7 @@ class AutoTracker:
                     
                     # Identificazione annuncio
                     listing_id = article.get('id', '')
-                    is_existing = listing_id in existing_data
+                    existing_listing = existing_listings.get(listing_id)
                     
                     # Estrazione URL e titolo
                     url_elem = article.select_one('a.dp-link.dp-listing-item-title-wrapper')
@@ -185,33 +176,32 @@ class AutoTracker:
                     # Gestione immagini e analisi visione
                     images = []
                     vision_results = {}
-                    if is_existing:
-                        existing = existing_data[listing_id]
-                        st.info(f"ℹ️ Annuncio {listing_id} già presente")
-                        
-                        # Verifica se rianalizzare
-                        should_reanalyze = self._should_reanalyze_listing(
-                            existing.get('last_plate_analysis'),
-                            existing.get('plate_confidence', 0),
-                            prices['original_price'],
-                            existing.get('vision_cache', {}).get('last_price')
-                        )
-                        
-                        if should_reanalyze:
-                            st.write("🔄 Rianalisi necessaria...")
-                            images = self.get_listing_images(url)
-                            if images:
-                                vision_results = vision_service.analyze_vehicle_images(images)
-                        else:
-                            st.write("✅ Usando dati esistenti")
-                            images = existing['image_urls']
-                            vision_results = existing['vision_cache']
+                    
+                    if existing_listing and existing_listing.get('plate'):
+                        # Se l'annuncio esiste già e ha una targa, mantieni i dati delle immagini esistenti
+                        st.info(f"ℹ️ Annuncio {listing_id} già presente con targa - mantengo dati immagini esistenti")
+                        images = existing_listing.get('image_urls', [])
+                        vision_results = {
+                            'plate': existing_listing.get('plate'),
+                            'plate_confidence': existing_listing.get('plate_confidence', 0),
+                            'vehicle_type': existing_listing.get('vehicle_type'),
+                            'last_plate_analysis': existing_listing.get('last_plate_analysis'),
+                        }
                     else:
-                        st.write("🆕 Nuovo annuncio, recupero immagini...")
+                        # Nuovo annuncio o annuncio esistente senza targa
+                        if not existing_listing:
+                            st.write("🆕 Nuovo annuncio, recupero immagini...")
+                        else:
+                            st.write("🔄 Annuncio esistente senza targa, recupero immagini...")
+                            
                         images = self.get_listing_images(url)
-                        if images:
+                        if images and vision_service:
                             vision_results = vision_service.analyze_vehicle_images(images)
-
+                            if vision_results and vision_results.get('plate'):
+                                st.success(f"✅ Targa rilevata: {vision_results['plate']} (confidenza: {vision_results['plate_confidence']:.2%})")
+                            else:
+                                st.warning("⚠️ Nessuna targa rilevata nelle immagini")
+                                
                     # Creazione dizionario annuncio
                     listing = {
                         'id': listing_id,
@@ -232,15 +222,26 @@ class AutoTracker:
                         'plate': vision_results.get('plate'),
                         'plate_confidence': vision_results.get('plate_confidence', 0),
                         'vehicle_type': vision_results.get('vehicle_type'),
-                        'last_plate_analysis': datetime.now() if vision_results else None,
+                        'last_plate_analysis': datetime.now() if vision_results else existing_listing.get('last_plate_analysis') if existing_listing else None,
                         'vision_cache': {
                             'results': vision_results,
                             'last_price': prices['original_price'],
                             'timestamp': datetime.now().isoformat()
-                        },
+                        } if vision_results else existing_listing.get('vision_cache') if existing_listing else {},
                         'scrape_date': datetime.now(),
                         'active': True
                     }
+
+                    # Se è un aggiornamento di un annuncio esistente, mantieni alcuni campi importanti
+                    if existing_listing:
+                        if existing_listing.get('plate_edited'):
+                            listing['plate'] = existing_listing['plate']
+                            listing['plate_edited'] = True
+                            listing['plate_edit_date'] = existing_listing.get('plate_edit_date')
+                        if existing_listing.get('first_seen'):
+                            listing['first_seen'] = existing_listing['first_seen']
+                        if existing_listing.get('notes'):
+                            listing['notes'] = existing_listing['notes']
 
                     listings.append(listing)
                     st.write(f"✅ Annuncio processato: {full_title}")
