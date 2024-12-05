@@ -43,13 +43,25 @@ class AutoTracker:
         
         # Inizializzazione sicura del VisionService
         try:
-            api_key = st.secrets.get("XAI_API_KEY")
+            # Debug per verificare le chiavi disponibili
+            print("Debug - Available secret keys:", st.secrets.keys())
+            
+            # Prova diverse varianti della chiave
+            api_key = None
+            possible_keys = ['XAI_API_KEY', 'xai_api_key', 'VISION_API_KEY', 'vision_api_key']
+            
+            for key in possible_keys:
+                if key in st.secrets:
+                    api_key = st.secrets[key]
+                    print(f"Found API key with name: {key}")
+                    break
+            
             if api_key:
                 self.vision = VisionService(api_key)
                 st.success("✅ Servizio Vision inizializzato correttamente")
             else:
                 self.vision = None
-                st.warning("⚠️ Chiave API Vision non configurata - Il riconoscimento targhe sarà disabilitato")
+                st.error("❌ Chiave API Vision non trovata nelle secrets. Chiavi disponibili: " + ", ".join(st.secrets.keys()))
         except Exception as e:
             self.vision = None
             st.error(f"❌ Errore inizializzazione Vision: {str(e)}")
