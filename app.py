@@ -238,21 +238,17 @@ def main():
                     
                     # Input targa con pulsante salva
                     df['targa'] = df.apply(
-                        lambda row: st.text_input(
-                            "Targa",
-                            value=row.get('plate', ''),
-                            key=f"plate_{row['id']}",
-                            label_visibility="collapsed"
-                        ) + (
-                            st.button(
-                                "💾",
-                                key=f"save_{row['id']}",
-                                help="Salva targa",
-                                on_click=lambda: tracker.update_plate(
-                                    row['id'],
+                        lambda row: (
+                            st.text_input(
+                                "",  # Label vuota per l'input
+                                value=row.get('plate', ''),
+                                key=f"plate_{row['id']}",
+                                placeholder="Inserisci targa",
+                                on_change=lambda: tracker.update_plate(
+                                    row['id'], 
                                     st.session_state[f"plate_{row['id']}"]
-                                ) and time.sleep(0.5) and st.rerun()
-                            ) if st.session_state.get(f"plate_{row['id']}") != row.get('plate', '') else ""
+                                ) if st.session_state.get(f"plate_{row['id']}") != row.get('plate', '') else None
+                            )
                         ),
                         axis=1
                     )
