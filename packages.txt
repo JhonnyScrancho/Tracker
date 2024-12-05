@@ -3,8 +3,3 @@ python3-dev
 poppler-utils
 tesseract-ocr
 tesseract-ocr-ita
-openalpr
-openalpr-daemon
-openalpr-utils
-libopenalpr-dev
-libopenalpr2
