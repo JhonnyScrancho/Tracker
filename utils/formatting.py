@@ -21,3 +21,17 @@ def format_duration(days):
     elif days == 1:
         return "1 giorno"
     return f"{int(days)} giorni"
+
+def format_dealer_name(url: str) -> str:
+    """
+    Formatta il nome del concessionario dall'URL
+    esempio: https://www.autoscout24.it/concessionari/jc-srl -> JC SRL
+    """
+    if not url:
+        return "N/D"
+        
+    # Estrae l'ultimo segmento dell'URL
+    dealer_slug = url.split('/')[-1]
+    
+    # Sostituisce i trattini con spazi e converte in maiuscolo
+    return dealer_slug.replace('-', ' ').upper()

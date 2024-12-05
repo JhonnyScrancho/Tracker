@@ -2,6 +2,8 @@ import streamlit as st
 from services.tracker import AutoTracker
 from datetime import datetime
 
+from utils.formatting import format_dealer_name
+
 class Sidebar:
     def __init__(self, tracker: AutoTracker):
         self.tracker = tracker
@@ -42,7 +44,7 @@ class Sidebar:
         st.sidebar.subheader("🏢 Concessionari")
         
         for dealer in dealers:
-            dealer_name = dealer['url'].split('/')[-1].upper()
+            dealer_name = format_dealer_name(dealer['url'])
             
             # Container per il dealer con info aggiornamento
             with st.sidebar.container():

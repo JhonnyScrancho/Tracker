@@ -3,6 +3,8 @@ import streamlit as st
 import sys
 from pathlib import Path
 
+from utils.formatting import format_dealer_name
+
 # Aggiungi la directory root al PYTHONPATH
 root_dir = Path(__file__).parent
 sys.path.append(str(root_dir))
@@ -40,7 +42,7 @@ st.markdown("""
             font-size: 14px;
         }
         .dataframe th {
-            background-color: #f8f9fa;
+            background-color: var(--background-color);
             padding: 2px;
             font-weight: 600;
             text-align: left;
@@ -51,9 +53,6 @@ st.markdown("""
             padding: 8px;
             vertical-align: middle;
             border-bottom: 1px solid #eee;
-        }
-        .dataframe tr:hover {
-            background-color: #f5f5f5;
         }
         
         .col-foto { width: auto !important; padding: 5px !important; }
@@ -290,7 +289,7 @@ class AutoTrackerApp:
         st.subheader("🏢 Concessionari Monitorati")
         
         for dealer in dealers:
-            with st.expander(f"**{dealer['url'].split('/')[-1].upper()}** - {dealer['url']}", expanded=False):
+            with st.expander(f"**{format_dealer_name(dealer['url'])}** - {dealer['url']}", expanded=False):
                 if dealer.get('last_update'):
                     st.caption(f"Ultimo aggiornamento: {dealer['last_update'].strftime('%d/%m/%Y %H:%M')}")
                     
@@ -328,7 +327,7 @@ class AutoTrackerApp:
             return
             
         # Header
-        st.title(f"🏢 {dealer['url'].split('/')[-1].upper()}")
+        st.title(f"🏢 {format_dealer_name(dealer['url'])}")
         st.caption(dealer['url'])
         
         if dealer.get('last_update'):
