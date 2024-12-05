@@ -798,3 +798,37 @@ class AutoTracker:
                    'image' in response.headers.get('content-type', ''))
         except Exception:
             return False    
+        
+    def get_dealer_history(self, dealer_id: str):
+        """
+        Recupera lo storico completo di un dealer
+        
+        Args:
+            dealer_id: ID del concessionario
+            
+        Returns:
+            Lista di eventi storici ordinati per data
+        """
+        try:
+            history = self.db.collection('history')\
+                .where('dealer_id', '==', dealer_id)\
+                .order_by('date')\
+                .stream()
+            
+            history_data = []
+            for event in history:
+                event_data = event.to_dict()
+                # Ensure all events have required fields
+                event_data['id'] = event.id
+                event_data['dealer_id'] = dealer_id
+                event_data['date'] = event_data.get('date', datetime.now())
+                event_data['event'] = event_data.get('event', 'unknown')
+                event_data['price'] = event_data.get('price', 0)
+                event_data['discounted_price'] = event_data.get('discounted_price')
+                history_data.append(event_data)
+                
+            return history_data
+            
+        except Exception as e:
+            st.error(f"❌ Errore nel recupero dello storico: {str(e)}")
+            return []    
