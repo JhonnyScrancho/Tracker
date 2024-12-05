@@ -228,7 +228,7 @@ class AutoScoutScraper:
 
     def get_listing_images(self, listing_url: str) -> List[Dict[str, float]]:
         """
-        Recupera e analizza le prime 10 immagini dell'annuncio, ordinandole per probabilità di contenere una targa.
+        Recupera e analizza SOLO le prime 10 immagini dell'annuncio, ordinandole per probabilità di contenere una targa.
         """
         try:
             st.write(f"📷 Recupero immagini da {listing_url}")
@@ -239,7 +239,7 @@ class AutoScoutScraper:
 
             soup = BeautifulSoup(response, 'lxml')
             images = []
-            MAX_IMAGES = 10  # Limitiamo a 10 immagini
+            MAX_IMAGES = 10
 
             # Lista di selettori in ordine di specificità
             selectors = [
@@ -249,16 +249,18 @@ class AutoScoutScraper:
                 'img[src*="/auto/"]'
             ]
 
-            # Raccoglie le prime 10 immagini uniche
+            found_urls = set()  # Per tenere traccia degli URL già processati
+            
+            # Ciclo principale che si ferma dopo MAX_IMAGES
             for selector in selectors:
                 if len(images) >= MAX_IMAGES:
-                    break
+                    break  # Esci dal ciclo dei selettori
                     
                 elements = soup.select(selector)
                 
                 for img in elements:
                     if len(images) >= MAX_IMAGES:
-                        break
+                        break  # Esci dal ciclo delle immagini
                         
                     if img.get('src'):
                         img_url = img['src']
@@ -266,24 +268,27 @@ class AutoScoutScraper:
                         base_url = re.sub(r'/\d+x\d+\.(webp|jpg)', '', img_url)
                         if not base_url.endswith('.jpg'):
                             base_url += '.jpg'
-                            
-                        if base_url not in [img['url'] for img in images]:
-                            # Analizza la probabilità di contenere una targa
+                                    
+                        if base_url not in found_urls:
+                            found_urls.add(base_url)
+                            st.write(f"Analisi immagine {len(images) + 1}/{MAX_IMAGES}...")
                             plate_likelihood = self._analyze_image_for_plate_likelihood(base_url)
                             images.append({
                                 'url': base_url,
-                                'plate_likelihood': plate_likelihood
+                                'plate_likelihood': plate_likelihood,
+                                'index': len(images) + 1
                             })
-                            st.write(f"✅ Trovata immagine {len(images)}/10 con score {plate_likelihood:.2f}: {base_url}")
 
+            st.write(f"\n📊 Analizzate {len(images)} immagini")
+            
             # Ordina per probabilità e prendi le migliori 3
             best_images = sorted(images, key=lambda x: x['plate_likelihood'], reverse=True)[:3]
             
-            st.write("📊 Migliori immagini selezionate:")
-            for img in best_images:
-                st.write(f"Score {img['plate_likelihood']:.2f}: {img['url']}")
+            st.write("\n🏆 TOP 3 immagini selezionate:")
+            for i, img in enumerate(best_images, 1):
+                st.write(f"{i}. Immagine {img['index']} - Score: {img['plate_likelihood']:.2f}")
 
-            return best_images
+            return [img['url'] for img in best_images]
 
         except Exception as e:
             st.write(f"❌ Errore nel recupero immagini: {str(e)}")
