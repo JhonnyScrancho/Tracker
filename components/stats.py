@@ -1,5 +1,5 @@
 import streamlit as st
-from utils.stats import calculate_dealer_stats, create_price_history_chart
+from utils.stats import calculate_dealer_stats, create_timeline_chart, create_price_history_chart
 from utils.formatting import format_price, format_duration
 
 def show_dealer_overview(tracker, dealer_id: str):
