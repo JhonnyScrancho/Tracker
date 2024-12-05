@@ -114,3 +114,60 @@ def calculate_dealer_stats(listings: List[Dict]) -> Dict:
         stats['avg_discount'] = sum(discounts) / len(discounts)
         
     return stats
+
+
+def create_timeline_chart(history_data):
+    """
+    Crea grafico timeline delle attività del dealer
+    
+    Args:
+        history_data: Lista di eventi storici dal database
+        
+    Returns:
+        Figura Plotly con il grafico timeline
+    """
+    if not history_data:
+        return None
+        
+    import plotly.graph_objects as go
+    import pandas as pd
+    
+    # Converti dati in DataFrame
+    df = pd.DataFrame(history_data)
+    
+    # Crea la figura
+    fig = go.Figure()
+    
+    # Aggiungi una traccia per ogni annuncio
+    for listing_id in df['listing_id'].unique():
+        mask = df['listing_id'] == listing_id
+        listing_data = df[mask]
+        
+        # Aggiungi traccia al grafico
+        fig.add_trace(go.Scatter(
+            x=listing_data['date'],
+            y=[listing_id] * len(listing_data),
+            mode='markers+lines',
+            name=f'Annuncio {listing_id[:8]}...',  # Tronca ID lunghi
+            hovertemplate='%{text}<br>Data: %{x}',
+            text=[f"Evento: {e}" for e in listing_data['event']]
+        ))
+    
+    # Configura layout
+    fig.update_layout(
+        title="Timeline Attività Annunci",
+        xaxis_title="Data",
+        yaxis_title="ID Annuncio",
+        height=400,
+        showlegend=True,
+        xaxis=dict(
+            type='date',
+            tickformat='%d/%m/%Y'
+        ),
+        yaxis=dict(
+            type='category'
+        ),
+        hovermode='closest'
+    )
+    
+    return fig
