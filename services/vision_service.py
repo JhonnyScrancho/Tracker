@@ -3,7 +3,7 @@ from datetime import datetime
 import cv2
 import numpy as np
 import requests
-from grok_vision import GrokVision
+from services.grok_vision import GrokVision
 import streamlit as st
 
 class VisionService:
