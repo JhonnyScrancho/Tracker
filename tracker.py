@@ -54,7 +54,7 @@ class AutoTracker:
                 st.warning("⚠️ Configurazione Vision Service mancante - alcune funzionalità saranno disabilitate")
         except Exception as e:
             st.warning(f"⚠️ Vision Service non disponibile: {str(e)}")
-            
+
     def _wait_rate_limit(self):
         """Implementa rate limiting tra le richieste"""
         now = time.time()
@@ -124,7 +124,7 @@ class AutoTracker:
             }
 
             # Inizializza il servizio di visione
-            vision_service = VisionService(st.secrets["XAI_API_KEY"])
+            vision_service = VisionService(st.secrets["vision"]["api_key"])
 
             for idx, article in enumerate(articles, 1):
                 try:
