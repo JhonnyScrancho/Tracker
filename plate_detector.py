@@ -1,29 +1,23 @@
 import time
+import re
 from typing import Optional
 from datetime import datetime
 import streamlit as st
 import requests
-import cv2
 import numpy as np
-from openalpr import Alpr
+import easyocr
+import cv2
 
-class PlateDetectorALPR:
+class PlateDetector:
     def __init__(self):
-        """Inizializza il detector con OpenALPR"""
+        """Inizializza il detector con EasyOCR"""
         try:
-            # Inizializza ALPR per targhe europee
-            self.alpr = Alpr("eu", "/etc/openalpr/openalpr.conf", "/usr/share/openalpr/runtime_data")
-            if not self.alpr.is_loaded():
-                raise RuntimeError("Errore nel caricamento di OpenALPR")
-            
-            # Configura per targhe italiane
-            self.alpr.set_top_n(5)
-            self.alpr.set_default_region("it")
-            
+            # Inizializza per italiano e inglese per maggiore accuratezza
+            self.reader = easyocr.Reader(['it', 'en'])
             self.results_cache = {}
         except Exception as e:
-            st.error(f"Errore inizializzazione OpenALPR: {str(e)}")
-            self.alpr = None
+            st.error(f"Errore inizializzazione EasyOCR: {str(e)}")
+            self.reader = None
 
     def _validate_plate(self, text: str) -> Optional[str]:
         """Valida il formato targa italiana"""
@@ -34,7 +28,6 @@ class PlateDetectorALPR:
         text = ''.join(c for c in text.upper() if c.isalnum())
         
         # Pattern targa italiana moderna (es. FL694XB)
-        import re
         patterns = [
             r'^[ABCDEFGHJKLMNPRSTVWXYZ]{2}\d{3}[ABCDEFGHJKLMNPRSTVWXYZ]{2}$',  # Standard
             r'^[A-Z]{2}\d{5}$',                                                  # Vecchio formato
@@ -52,7 +45,7 @@ class PlateDetectorALPR:
         return None
 
     def detect_plate_from_url(self, image_url: str) -> Optional[str]:
-        """Rileva targa usando OpenALPR"""
+        """Rileva targa usando EasyOCR"""
         try:
             # Check cache
             if image_url in self.results_cache:
@@ -67,21 +60,20 @@ class PlateDetectorALPR:
             nparr = np.frombuffer(response.content, np.uint8)
             img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
             
-            # Analisi con OpenALPR
-            if self.alpr:
-                results = self.alpr.recognize_ndarray(img)
-                if results['results']:
-                    # Prendi il risultato con confidence più alta
-                    best_result = max(results['results'], key=lambda x: x['confidence'])
-                    plate = best_result['plate']
-                    
-                    if validated_plate := self._validate_plate(plate):
-                        # Salva in cache
-                        self.results_cache[image_url] = {
-                            'plate': validated_plate,
-                            'timestamp': datetime.now()
-                        }
-                        return validated_plate
+            if self.reader:
+                # Riconoscimento testo
+                results = self.reader.readtext(img)
+                
+                # Analizza tutti i risultati cercando una targa valida
+                for (bbox, text, prob) in results:
+                    if prob > 0.5:  # Soglia di confidenza
+                        if plate := self._validate_plate(text):
+                            # Salva in cache
+                            self.results_cache[image_url] = {
+                                'plate': plate,
+                                'timestamp': datetime.now()
+                            }
+                            return plate
 
             return None
             
@@ -102,11 +94,6 @@ class PlateDetectorALPR:
                     return None
                 time.sleep(1)
         return None
-
-    def __del__(self):
-        """Cleanup quando l'oggetto viene distrutto"""
-        if hasattr(self, 'alpr') and self.alpr:
-            self.alpr.unload()
 
     def clear_cache(self):
         """Pulisce la cache dei risultati"""
