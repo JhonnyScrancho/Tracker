@@ -842,25 +842,23 @@ class AutoTracker:
             return {
                 'enabled': False,
                 'hour': 1,
-                'minute': 0
+                'minute': 0,
+                'last_update': None
             }
         except Exception as e:
             st.error(f"❌ Errore nel recupero configurazione scheduler: {str(e)}")
             return {
                 'enabled': False,
                 'hour': 1,
-                'minute': 0
+                'minute': 0,
+                'last_update': None
             }
+
 
     def save_scheduler_config(self, config: dict):
         """Salva la configurazione dello scheduler"""
         try:
             self.db.collection('config').document('scheduler').set(config, merge=True)
-            
-            # Se l'automazione è abilitata, pianifica il prossimo aggiornamento
-            if config.get('enabled'):
-                self._schedule_next_update(config['hour'], config['minute'])
-                
         except Exception as e:
             st.error(f"❌ Errore nel salvataggio configurazione scheduler: {str(e)}")
 
