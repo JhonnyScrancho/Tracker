@@ -49,7 +49,6 @@ class AutoTracker:
             if 'vision' in st.secrets and 'api_key' in st.secrets['vision']:
                 api_key = st.secrets['vision']['api_key']
                 self.vision = VisionService(api_key)
-                st.success("✅ Servizio Vision inizializzato correttamente")
             else:
                 st.warning("⚠️ Configurazione Vision Service mancante - alcune funzionalità saranno disabilitate")
         except Exception as e:
