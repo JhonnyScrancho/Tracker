@@ -226,65 +226,46 @@ class AutoScoutScraper:
                 
         return listings
 
-    def get_listing_images(self, listing_url: str) -> List[Dict[str, float]]:
+    def get_listing_images(self, listing_url: str) -> list:
         """
-        Recupera e analizza SOLO le prime 10 immagini dell'annuncio.
+        Recupera solo le prime 10 immagini dell'annuncio
         """
         try:
             st.write(f"📷 Recupero immagini da {listing_url}")
             
-            response = self._get_with_retry(listing_url)
-            if not response:
+            response = requests.get(listing_url, headers=self.session.headers)
+            if not response.ok:
                 return []
 
-            soup = BeautifulSoup(response, 'lxml')
+            soup = BeautifulSoup(response.text, 'lxml')
             images = []
             found_urls = set()
             MAX_IMAGES = 10
 
             # Combina tutti i selettori in una singola query
-            all_images = soup.select(
-                '.image-gallery-slides picture.ImageWithBadge_picture__XJG24 img, ' + 
-                '.image-gallery-slides img, ' + 
-                '.Gallery_gallery__ppyDW img, ' + 
-                'img[src*="/auto/"]'
-            )
-
-            # Prendi solo le prime MAX_IMAGES immagini
-            for img in all_images[:MAX_IMAGES]:
+            all_images = soup.select('img[src*="/auto/"]')[:MAX_IMAGES]
+            
+            for img in all_images:
+                if len(images) >= MAX_IMAGES:
+                    break
+                    
                 if img.get('src'):
                     img_url = img['src']
-                    # Normalizza URL per la massima qualità
+                    # Normalizza URL
                     base_url = re.sub(r'/\d+x\d+\.(webp|jpg)', '', img_url)
                     if not base_url.endswith('.jpg'):
                         base_url += '.jpg'
-                        
+                    
                     if base_url not in found_urls:
                         found_urls.add(base_url)
-                        st.write(f"Analisi immagine {len(images) + 1}/{MAX_IMAGES}...")
-                        plate_likelihood = self._analyze_image_for_plate_likelihood(base_url)
-                        images.append({
-                            'url': base_url,
-                            'plate_likelihood': plate_likelihood,
-                            'index': len(images) + 1
-                        })
-                        
-                        if len(images) >= MAX_IMAGES:
-                            break
+                        images.append(base_url)
+                        st.write(f"📸 Immagine {len(images)}/{MAX_IMAGES}")
 
-            st.write(f"\n📊 Analizzate {len(images)} immagini")
-            
-            # Ordina per probabilità e prendi le migliori 3
-            best_images = sorted(images, key=lambda x: x['plate_likelihood'], reverse=True)[:3]
-            
-            st.write("\n🏆 TOP 3 immagini selezionate:")
-            for i, img in enumerate(best_images, 1):
-                st.write(f"{i}. Immagine {img['index']} - Score: {img['plate_likelihood']:.2f}")
-
-            return [img['url'] for img in best_images]
+            st.write(f"✅ Recuperate {len(images)} immagini")
+            return images
 
         except Exception as e:
-            st.write(f"❌ Errore nel recupero immagini: {str(e)}")
+            st.error(f"❌ Errore nel recupero immagini: {str(e)}")
             return []
 
     def extract_dealer_info(self, dealer_url: str) -> Dict:
