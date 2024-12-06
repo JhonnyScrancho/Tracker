@@ -41,10 +41,14 @@ def calculate_dealer_stats(listings: List[Dict]) -> Dict:
             stats['discounted_cars'] += 1
             discounts.append(listing['discount_percentage'])
             
-        # Calcolo giorni in lista
-        if listing.get('first_seen'):
-            days = (datetime.now() - listing['first_seen']).days
-            listing_days.append(days)
+        # Calcolo giorni in lista - Aggiunta validazione
+        first_seen = listing.get('first_seen')
+        if first_seen and isinstance(first_seen, datetime):
+            try:
+                days = (datetime.now() - first_seen).days
+                listing_days.append(days)
+            except Exception as e:
+                st.warning(f"Errore nel calcolo giorni per listing {listing.get('id')}: {str(e)}")
             
         # Conteggio riapparizioni
         if listing.get('reappeared'):
