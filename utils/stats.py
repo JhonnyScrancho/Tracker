@@ -1,8 +1,11 @@
 from datetime import datetime, timezone
+import pytz
 import pandas as pd
 import plotly.graph_objects as go
 from typing import List, Dict
 import streamlit as st
+
+
 
 @st.cache_data(ttl=3600)
 def calculate_dealer_stats(listings: List[Dict]) -> Dict:
@@ -25,8 +28,8 @@ def calculate_dealer_stats(listings: List[Dict]) -> Dict:
     discounts = []
     listing_days = []
     
-    # Usa datetime timezone-aware
-    now = datetime.now(timezone.utc)
+    # Usa datetime naive per i confronti
+    now = datetime.utcnow()
     
     for listing in listings:
         # Calcolo prezzi
@@ -44,15 +47,16 @@ def calculate_dealer_stats(listings: List[Dict]) -> Dict:
             stats['discounted_cars'] += 1
             discounts.append(listing['discount_percentage'])
             
-        # Calcolo giorni in lista con gestione timezone
+        # Calcolo giorni in lista con gestione timezone sicura
         first_seen = listing.get('first_seen')
         if first_seen:
             try:
-                # Se first_seen è naive, rendilo aware
-                if first_seen.tzinfo is None:
-                    first_seen = first_seen.replace(tzinfo=timezone.utc)
+                # Converti first_seen in naive datetime se ha timezone
+                if first_seen.tzinfo is not None:
+                    first_seen = first_seen.replace(tzinfo=None)
                 days = (now - first_seen).days
-                listing_days.append(days)
+                if days >= 0:  # Validazione aggiuntiva
+                    listing_days.append(days)
             except Exception as e:
                 st.warning(f"Errore nel calcolo giorni per listing {listing.get('id')}: {str(e)}")
             
