@@ -158,30 +158,32 @@ def create_timeline_chart(history_data: List[Dict]) -> go.Figure:
         latest = df[df['listing_id'] == listing_id].iloc[-1]
         listing_details = latest.get('listing_details', {})
         
-        # Estrai informazioni dal listing_details
+        # Estrai targa o titolo
+        label = None
+        plate = listing_details.get('plate')
         title = listing_details.get('title', '')
-        plate = listing_details.get('plate', '')
+        image_url = None
         
-        # Costruisci l'etichetta con priorità alle informazioni disponibili
-        if title or plate:
-            parts = []
-            
-            if title:
-                # Estrai marca e modello dal titolo
-                brand_model = ' '.join(title.split()[:2])
-                parts.append(brand_model)
-            
-            if plate:
-                parts.append(f"[{plate}]")
-                
-            label = " - ".join(parts)
+        if 'image_urls' in listing_details and listing_details['image_urls']:
+            image_url = listing_details['image_urls'][0]
+        
+        # Priorità alla targa, poi al titolo
+        if plate:
+            label = plate
+        elif title:
+            # Prendi solo marca e modello dal titolo
+            label = ' '.join(title.split()[:2])
         else:
-            # Fallback all'ID se non ci sono altre informazioni
-            label = listing_id
+            # Fallback all'ID se non abbiamo né targa né titolo
+            label = listing_id[:8] + "..."
             
-        vehicle_details[listing_id] = label
+        vehicle_details[listing_id] = {
+            'label': label,
+            'title': title,
+            'plate': plate,
+            'image_url': image_url
+        }
     
-    # Resto del codice per la creazione del grafico rimane invariato
     fig = go.Figure()
     
     colors = {
@@ -193,20 +195,26 @@ def create_timeline_chart(history_data: List[Dict]) -> go.Figure:
     
     for listing_id in df['listing_id'].unique():
         vehicle_data = df[df['listing_id'] == listing_id]
+        details = vehicle_details[listing_id]
         
-        # Traccia principale con hover text migliorato
-        hover_text = [
-            f"Evento: {e.title()}<br>"
-            f"ID: {listing_id}<br>"
-            f"Veicolo: {vehicle_details[listing_id]}"
-            for e in vehicle_data['event']
-        ]
+        # Costruisci hover text con immagine
+        hover_text = []
+        for _, row in vehicle_data.iterrows():
+            html = f"<b>{details['title'] if details['title'] else 'N/D'}</b><br>"
+            if details['plate']:
+                html += f"Targa: {details['plate']}<br>"
+            html += f"Evento: {row['event'].title()}<br>"
+            html += f"ID: {listing_id}<br>"
+            if details['image_url']:
+                html += f"<img src='{details['image_url']}' style='max-width:200px;'><br>"
+            hover_text.append(html)
         
+        # Traccia principale
         fig.add_trace(go.Scatter(
             x=vehicle_data['date'],
-            y=[vehicle_details[listing_id]] * len(vehicle_data),
+            y=[details['label']] * len(vehicle_data),
             mode='lines+markers',
-            name=vehicle_details[listing_id],
+            name=details['label'],
             line=dict(color=colors.get('update'), width=2),
             hovertemplate='%{text}<br>' +
                          'Data: %{x|%d/%m/%Y %H:%M}<br>' +
@@ -215,20 +223,25 @@ def create_timeline_chart(history_data: List[Dict]) -> go.Figure:
             customdata=vehicle_data['price'].fillna(0)
         ))
         
-        # Eventi speciali con hover text migliorato
+        # Eventi speciali
         for event in ['removed', 'reappeared', 'price_changed']:
             event_data = vehicle_data[vehicle_data['event'] == event]
             if not event_data.empty:
-                event_hover_text = [
-                    f"Evento: {e.title()}<br>"
-                    f"ID: {listing_id}<br>"
-                    f"Veicolo: {vehicle_details[listing_id]}"
-                    for e in event_data['event']
-                ]
+                # Costruisci hover text per eventi speciali
+                event_hover_text = []
+                for _, row in event_data.iterrows():
+                    html = f"<b>{details['title'] if details['title'] else 'N/D'}</b><br>"
+                    if details['plate']:
+                        html += f"Targa: {details['plate']}<br>"
+                    html += f"Evento: {event.title()}<br>"
+                    html += f"ID: {listing_id}<br>"
+                    if details['image_url']:
+                        html += f"<img src='{details['image_url']}' style='max-width:200px;'><br>"
+                    event_hover_text.append(html)
                 
                 fig.add_trace(go.Scatter(
                     x=event_data['date'],
-                    y=[vehicle_details[listing_id]] * len(event_data),
+                    y=[details['label']] * len(event_data),
                     mode='markers',
                     marker=dict(
                         symbol='star',
@@ -244,7 +257,7 @@ def create_timeline_chart(history_data: List[Dict]) -> go.Figure:
                     customdata=event_data['price'].fillna(0)
                 ))
     
-    # Layout e configurazione finale rimane invariato
+    # Layout
     fig.update_layout(
         title="Timeline Attività Annunci",
         xaxis_title="Data",
@@ -257,6 +270,11 @@ def create_timeline_chart(history_data: List[Dict]) -> go.Figure:
             type='date',
             tickformat='%d/%m/%Y',
             rangeslider=dict(visible=True)
+        ),
+        hoverlabel=dict(
+            bgcolor="white",
+            font_size=12,
+            align="left"
         )
     )
     
