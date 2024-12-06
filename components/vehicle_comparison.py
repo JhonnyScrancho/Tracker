@@ -3,6 +3,8 @@ import pandas as pd
 import plotly.graph_objects as go
 from typing import List, Dict
 from datetime import datetime
+import pytz
+from utils.datetime_utils import normalize_datetime, get_current_time
 
 def show_comparison_view(tracker, listings: List[Dict]):
     """Mostra vista comparativa tra veicoli"""
@@ -74,17 +76,32 @@ def show_vehicle_comparison(vehicle1: Dict, vehicle2: Dict):
                 f"{'+' if km_diff > 0 else ''}{km_diff:,.0f}"
             )
             
-    # Età annuncio
+    # Età annuncio con gestione timezone corretta
     with cols[2]:
         if 'first_seen' in vehicle1 and 'first_seen' in vehicle2:
-            days1 = (datetime.now() - vehicle1['first_seen']).days
-            days2 = (datetime.now() - vehicle2['first_seen']).days
-            days_diff = days1 - days2
-            st.metric(
-                "Differenza Giorni in Lista",
-                f"{abs(days_diff)} giorni",
-                f"{'+' if days_diff > 0 else ''}{days_diff}"
-            )
+            try:
+                # Usa get_current_time() per timestamp UTC corrente
+                now = get_current_time()
+                
+                # Normalizza i timestamp first_seen
+                first_seen1 = normalize_datetime(vehicle1['first_seen'])
+                first_seen2 = normalize_datetime(vehicle2['first_seen'])
+                
+                if first_seen1 and first_seen2:
+                    days1 = (now - first_seen1).days
+                    days2 = (now - first_seen2).days
+                    days_diff = days1 - days2
+                    
+                    st.metric(
+                        "Differenza Giorni in Lista",
+                        f"{abs(days_diff)} giorni",
+                        f"{'+' if days_diff > 0 else ''}{days_diff}"
+                    )
+                else:
+                    st.metric("Differenza Giorni in Lista", "N/D", "")
+            except Exception as e:
+                st.error(f"Errore nel calcolo differenza giorni: {str(e)}")
+                st.metric("Differenza Giorni in Lista", "Errore", "")
     
     # Confronto dettagli
     st.write("📊 Confronto Dettagli")
