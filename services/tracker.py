@@ -90,172 +90,181 @@ class AutoTracker:
             return []
 
         st.info("🔍 Inizio scraping della pagina...")
+        all_listings = []
+        page = 1
+        dealer_id = dealer_url.split('/')[-1]
         
         try:
-            st.write("📥 Scaricando la pagina...")
-            response = requests.get(dealer_url, headers=self.session.headers, timeout=30)
-            response.raise_for_status()
-            
-            soup = BeautifulSoup(response.text, 'lxml')
-            
-            total_results = soup.select_one(".dp-list__title__count")
-            if total_results:
-                st.write(f"📊 Totale annunci trovati: {total_results.text}")
-            
-            listings = []
-            dealer_id = dealer_url.split('/')[-1]
-
-            articles = soup.select('article.dp-listing-item')
-            if not articles:
-                st.warning("⚠️ Nessun annuncio trovato nella pagina")
-                return []
-
-            st.write(f"🚗 Trovati {len(articles)} annunci da processare")
-
             # Recupera gli annunci esistenti e loro dati
             existing_listings = {l['id']: l for l in self.get_active_listings(dealer_id)}
-
+            
             # Inizializza il servizio di visione solo se necessario
             vision_service = None
             if self.vision and 'vision' in st.secrets and 'api_key' in st.secrets['vision']:
                 vision_service = VisionService(st.secrets["vision"]["api_key"])
 
-            for idx, article in enumerate(articles, 1):
-                try:
-                    st.write(f"📝 [{idx}/{len(articles)}] Processando annuncio...")
+            while True:
+                # Costruisci URL con parametro pagina
+                page_url = f"{dealer_url}?page={page}"
+                st.write(f"📥 Scaricando pagina {page}...")
+                
+                response = requests.get(page_url, headers=self.session.headers, timeout=30)
+                response.raise_for_status()
+                
+                soup = BeautifulSoup(response.text, 'lxml')
+                articles = soup.select('article.dp-listing-item')
+                
+                if not articles:
+                    if page == 1:
+                        st.warning("⚠️ Nessun annuncio trovato nella pagina")
+                    break  # Se non ci sono più articoli, esci dal loop
                     
-                    # Identificazione annuncio
-                    listing_id = article.get('id', '')
-                    existing_listing = existing_listings.get(listing_id)
-                    
-                    # Estrazione URL e titolo
-                    url_elem = article.select_one('a.dp-link.dp-listing-item-title-wrapper')
-                    if not url_elem or 'href' not in url_elem.attrs:
-                        url_elem = article.select_one('.dp-listing-item-title-wrapper a')
-                        if not url_elem or 'href' not in url_elem.attrs:
-                            st.warning("⚠️ URL non trovato per questo annuncio")
-                            continue
+                st.write(f"🚗 Trovati {len(articles)} annunci nella pagina {page}")
 
-                    url = f"https://www.autoscout24.it{url_elem['href']}"
-                    title_elem = url_elem.select_one('h2')
-                    version_elem = url_elem.select_one('.version')
-                    
-                    title = title_elem.text.strip() if title_elem else "N/D"
-                    version = version_elem.text.strip() if version_elem else ""
-                    full_title = f"{title} {version}".strip()
-
-                    # ESTRAZIONE PREZZI
-                    price_section = article.select_one('[data-testid="price-section"]')
-                    prices = {
-                        'original_price': None,
-                        'discounted_price': None,
-                        'has_discount': False,
-                        'discount_percentage': None
-                    }
-
-                    if price_section:
-                        discount_price = price_section.select_one('.discount-price, .dp-listing-item__superdeal-strikethrough div')
-                        if discount_price:
-                            prices['original_price'] = self._extract_price(discount_price.text)
-                            prices['has_discount'] = True
-                            
-                            current_price = price_section.select_one('.dp-listing-item__superdeal-highlight-price-span, .current-price')
-                            if current_price:
-                                prices['discounted_price'] = self._extract_price(current_price.text)
-                                
-                                if prices['original_price'] and prices['discounted_price']:
-                                    prices['discount_percentage'] = round(
-                                        ((prices['original_price'] - prices['discounted_price']) / 
-                                        prices['original_price'] * 100),
-                                        1
-                                    )
-                        else:
-                            regular_price = price_section.select_one('.dp-listing-item__price')
-                            if regular_price:
-                                prices['original_price'] = self._extract_price(regular_price.text)
-
-                    # Estrazione dettagli veicolo
-                    details = self._extract_vehicle_details(article)
-
-                    # Gestione immagini e analisi visione
-                    images = []
-                    vision_results = {}
-                    
-                    if existing_listing and existing_listing.get('plate'):
-                        # Se l'annuncio esiste già e ha una targa, mantieni i dati delle immagini esistenti
-                        st.info(f"ℹ️ Annuncio {listing_id} già presente con targa - mantengo dati immagini esistenti")
-                        images = existing_listing.get('image_urls', [])
-                        vision_results = {
-                            'plate': existing_listing.get('plate'),
-                            'plate_confidence': existing_listing.get('plate_confidence', 0),
-                            'vehicle_type': existing_listing.get('vehicle_type'),
-                            'last_plate_analysis': existing_listing.get('last_plate_analysis'),
-                        }
-                    else:
-                        # Nuovo annuncio o annuncio esistente senza targa
-                        if not existing_listing:
-                            st.write("🆕 Nuovo annuncio, recupero immagini...")
-                        else:
-                            st.write("🔄 Annuncio esistente senza targa, recupero immagini...")
-                            
-                        images = self.get_listing_images(url)
-                        if images and vision_service:
-                            vision_results = vision_service.analyze_vehicle_images(images)
-                            if vision_results and vision_results.get('plate'):
-                                st.success(f"✅ Targa rilevata: {vision_results['plate']} (confidenza: {vision_results['plate_confidence']:.2%})")
-                            else:
-                                st.warning("⚠️ Nessuna targa rilevata nelle immagini")
-                                
-                    # Creazione dizionario annuncio
-                    listing = {
-                        'id': listing_id,
-                        'title': full_title,
-                        'url': url,
-                        'original_price': prices['original_price'],
-                        'discounted_price': prices['discounted_price'],
-                        'has_discount': prices['has_discount'],
-                        'discount_percentage': prices['discount_percentage'],
-                        'dealer_id': dealer_id,
-                        'image_urls': images,
-                        'mileage': details['mileage'],
-                        'registration': details['registration'],
-                        'power': details['power'],
-                        'fuel': details['fuel'],
-                        'transmission': details['transmission'],
-                        'consumption': details['consumption'],
-                        'plate': vision_results.get('plate'),
-                        'plate_confidence': vision_results.get('plate_confidence', 0),
-                        'vehicle_type': vision_results.get('vehicle_type'),
-                        'last_plate_analysis': datetime.now() if vision_results else existing_listing.get('last_plate_analysis') if existing_listing else None,
-                        'vision_cache': {
-                            'results': vision_results,
-                            'last_price': prices['original_price'],
-                            'timestamp': datetime.now().isoformat()
-                        } if vision_results else existing_listing.get('vision_cache') if existing_listing else {},
-                        'scrape_date': datetime.now(),
-                        'active': True
-                    }
-
-                    # Se è un aggiornamento di un annuncio esistente, mantieni alcuni campi importanti
-                    if existing_listing:
-                        if existing_listing.get('plate_edited'):
-                            listing['plate'] = existing_listing['plate']
-                            listing['plate_edited'] = True
-                            listing['plate_edit_date'] = existing_listing.get('plate_edit_date')
-                        if existing_listing.get('first_seen'):
-                            listing['first_seen'] = existing_listing['first_seen']
-                        if existing_listing.get('notes'):
-                            listing['notes'] = existing_listing['notes']
-
-                    listings.append(listing)
-                    st.write(f"✅ Annuncio processato: {full_title}")
-                    
-                except Exception as e:
-                    st.error(f"❌ Errore nel parsing dell'annuncio: {str(e)}")
-                    continue
+                for idx, article in enumerate(articles, 1):
+                    try:
+                        st.write(f"📝 [{idx}/{len(articles)}] Processando annuncio...")
                         
-            st.success(f"🎉 Scraping completato. Trovati {len(listings)} annunci validi")
-            return listings
+                        # Identificazione annuncio
+                        listing_id = article.get('id', '')
+                        existing_listing = existing_listings.get(listing_id)
+                        
+                        # Estrazione URL e titolo
+                        url_elem = article.select_one('a.dp-link.dp-listing-item-title-wrapper')
+                        if not url_elem or 'href' not in url_elem.attrs:
+                            url_elem = article.select_one('.dp-listing-item-title-wrapper a')
+                            if not url_elem or 'href' not in url_elem.attrs:
+                                st.warning("⚠️ URL non trovato per questo annuncio")
+                                continue
+
+                        url = f"https://www.autoscout24.it{url_elem['href']}"
+                        title_elem = url_elem.select_one('h2')
+                        version_elem = url_elem.select_one('.version')
+                        
+                        title = title_elem.text.strip() if title_elem else "N/D"
+                        version = version_elem.text.strip() if version_elem else ""
+                        full_title = f"{title} {version}".strip()
+
+                        # ESTRAZIONE PREZZI
+                        price_section = article.select_one('[data-testid="price-section"]')
+                        prices = {
+                            'original_price': None,
+                            'discounted_price': None,
+                            'has_discount': False,
+                            'discount_percentage': None
+                        }
+
+                        if price_section:
+                            discount_price = price_section.select_one('.discount-price, .dp-listing-item__superdeal-strikethrough div')
+                            if discount_price:
+                                prices['original_price'] = self._extract_price(discount_price.text)
+                                prices['has_discount'] = True
+                                
+                                current_price = price_section.select_one('.dp-listing-item__superdeal-highlight-price-span, .current-price')
+                                if current_price:
+                                    prices['discounted_price'] = self._extract_price(current_price.text)
+                                    
+                                    if prices['original_price'] and prices['discounted_price']:
+                                        prices['discount_percentage'] = round(
+                                            ((prices['original_price'] - prices['discounted_price']) / 
+                                            prices['original_price'] * 100),
+                                            1
+                                        )
+                            else:
+                                regular_price = price_section.select_one('.dp-listing-item__price')
+                                if regular_price:
+                                    prices['original_price'] = self._extract_price(regular_price.text)
+
+                        # Estrazione dettagli veicolo
+                        details = self._extract_vehicle_details(article)
+
+                        # Gestione immagini e analisi visione
+                        images = []
+                        vision_results = {}
+                        
+                        if existing_listing and existing_listing.get('plate'):
+                            # Se l'annuncio esiste già e ha una targa, mantieni i dati delle immagini esistenti
+                            st.info(f"ℹ️ Annuncio {listing_id} già presente con targa - mantengo dati immagini esistenti")
+                            images = existing_listing.get('image_urls', [])
+                            vision_results = {
+                                'plate': existing_listing.get('plate'),
+                                'plate_confidence': existing_listing.get('plate_confidence', 0),
+                                'vehicle_type': existing_listing.get('vehicle_type'),
+                                'last_plate_analysis': existing_listing.get('last_plate_analysis'),
+                            }
+                        else:
+                            # Nuovo annuncio o annuncio esistente senza targa
+                            if not existing_listing:
+                                st.write("🆕 Nuovo annuncio, recupero immagini...")
+                            else:
+                                st.write("🔄 Annuncio esistente senza targa, recupero immagini...")
+                                
+                            images = self.get_listing_images(url)
+                            if images and vision_service:
+                                vision_results = vision_service.analyze_vehicle_images(images)
+                                if vision_results and vision_results.get('plate'):
+                                    st.success(f"✅ Targa rilevata: {vision_results['plate']} (confidenza: {vision_results['plate_confidence']:.2%})")
+                                else:
+                                    st.warning("⚠️ Nessuna targa rilevata nelle immagini")
+                                    
+                        # Creazione dizionario annuncio
+                        listing = {
+                            'id': listing_id,
+                            'title': full_title,
+                            'url': url,
+                            'original_price': prices['original_price'],
+                            'discounted_price': prices['discounted_price'],
+                            'has_discount': prices['has_discount'],
+                            'discount_percentage': prices['discount_percentage'],
+                            'dealer_id': dealer_id,
+                            'image_urls': images,
+                            'mileage': details['mileage'],
+                            'registration': details['registration'],
+                            'power': details['power'],
+                            'fuel': details['fuel'],
+                            'transmission': details['transmission'],
+                            'consumption': details['consumption'],
+                            'plate': vision_results.get('plate'),
+                            'plate_confidence': vision_results.get('plate_confidence', 0),
+                            'vehicle_type': vision_results.get('vehicle_type'),
+                            'last_plate_analysis': datetime.now() if vision_results else existing_listing.get('last_plate_analysis') if existing_listing else None,
+                            'vision_cache': {
+                                'results': vision_results,
+                                'last_price': prices['original_price'],
+                                'timestamp': datetime.now().isoformat()
+                            } if vision_results else existing_listing.get('vision_cache') if existing_listing else {},
+                            'scrape_date': datetime.now(),
+                            'active': True
+                        }
+
+                        # Se è un aggiornamento di un annuncio esistente, mantieni alcuni campi importanti
+                        if existing_listing:
+                            if existing_listing.get('plate_edited'):
+                                listing['plate'] = existing_listing['plate']
+                                listing['plate_edited'] = True
+                                listing['plate_edit_date'] = existing_listing.get('plate_edit_date')
+                            if existing_listing.get('first_seen'):
+                                listing['first_seen'] = existing_listing['first_seen']
+                            if existing_listing.get('notes'):
+                                listing['notes'] = existing_listing['notes']
+
+                        all_listings.append(listing)
+                        st.write(f"✅ Annuncio processato: {full_title}")
+                        
+                    except Exception as e:
+                        st.error(f"❌ Errore nel parsing dell'annuncio: {str(e)}")
+                        continue
+                
+                # Verifica se c'è una pagina successiva
+                next_button = soup.select_one('button[aria-label="Successivo"]:not([aria-disabled="true"])')
+                if not next_button:
+                    break
+                    
+                page += 1
+                time.sleep(self.delay)  # Rispetta il rate limiting
+            
+            st.success(f"🎉 Scraping completato. Trovati {len(all_listings)} annunci totali")
+            return all_listings
                 
         except requests.RequestException as e:
             st.error(f"❌ Errore nella richiesta HTTP: {str(e)}")
