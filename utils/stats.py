@@ -27,8 +27,8 @@ def calculate_dealer_stats(listings: List[Dict]) -> Dict:
     discounts = []
     listing_days = []
     
-    # Usa datetime UTC aware 
-    now = datetime.now(timezone.utc)
+    # Forza tutto in UTC
+    now = pd.Timestamp.now(tz='UTC')
     
     for listing in listings:
         # Calcolo prezzi
@@ -46,29 +46,22 @@ def calculate_dealer_stats(listings: List[Dict]) -> Dict:
             stats['discounted_cars'] += 1
             discounts.append(listing['discount_percentage'])
             
-        # Calcolo giorni in lista con gestione timezone corretta
+        # Calcolo giorni in lista usando pandas per gestire i timezone
         first_seen = listing.get('first_seen')
         if first_seen:
             try:
-                # Se è naive, assumiamo sia UTC
-                if first_seen.tzinfo is None:
-                    first_seen = first_seen.replace(tzinfo=timezone.utc)
-                # Se ha timezone diverso da UTC, convertiamo
-                elif first_seen.tzinfo != timezone.utc:
-                    first_seen = first_seen.astimezone(timezone.utc)
-                    
+                # Converti a Timestamp pandas che gestisce meglio i timezone
+                first_seen = pd.Timestamp(first_seen).tz_localize('UTC')
                 days = (now - first_seen).days
                 if days >= 0:
                     listing_days.append(days)
-                else:
-                    st.warning(f"Data anomala per listing {listing.get('id')}: {first_seen}")
             except Exception as e:
-                st.error(f"Errore elaborazione data per listing {listing.get('id')}: {first_seen} - {str(e)}")
+                st.error(f"Errore data listing {listing.get('id')}: {str(e)}")
             
         # Conteggio riapparizioni
         if listing.get('reappeared'):
             stats['reappeared_vehicles'] += 1
-            
+    
     # Calcolo medie
     if prices:
         stats['avg_price'] = sum(prices) / len(prices)
