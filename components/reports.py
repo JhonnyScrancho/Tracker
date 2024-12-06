@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -6,7 +6,7 @@ from typing import List, Dict, Optional
 
 def generate_weekly_report(tracker, dealer_id: str) -> Dict:
     """Genera report settimanale delle attività"""
-    end_date = datetime.now()
+    end_date = datetime.now(timezone.utc)
     start_date = end_date - timedelta(days=7)
     
     # Recupera dati periodo
@@ -17,6 +17,8 @@ def generate_weekly_report(tracker, dealer_id: str) -> Dict:
         return {}
         
     df_history = pd.DataFrame(history)
+    # Assicurati che le date abbiano il timezone
+    df_history['date'] = pd.to_datetime(df_history['date']).dt.tz_localize('UTC')
     df_history = df_history[(df_history['date'] >= start_date) & 
                            (df_history['date'] <= end_date)]
     

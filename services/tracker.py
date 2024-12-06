@@ -2,7 +2,7 @@ from typing import Dict, List, Optional
 from firebase_admin import credentials, initialize_app, firestore
 from bs4 import BeautifulSoup
 import requests
-from datetime import datetime
+from datetime import datetime, timezone
 import streamlit as st
 import pandas as pd
 import firebase_admin
@@ -515,7 +515,7 @@ class AutoTracker:
     def save_listings(self, listings):
         """Salva o aggiorna gli annunci con tracciamento migliorato"""
         batch = self.db.batch()
-        timestamp = datetime.now()
+        timestamp = datetime.now(timezone.utc) 
         
         print(f"Salvataggio di {len(listings)} annunci")
         
