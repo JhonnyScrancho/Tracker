@@ -1,5 +1,5 @@
 from firebase_admin import credentials, initialize_app, firestore
-from datetime import datetime
+from datetime import datetime, timezone
 import streamlit as st
 
 class FirebaseManager:
@@ -49,7 +49,7 @@ class FirebaseManager:
     def save_listings(self, listings):
         """Salva o aggiorna gli annunci"""
         batch = self.db.batch()
-        timestamp = datetime.now()
+        timestamp = datetime.now(timezone.utc)
         
         print(f"Salvataggio di {len(listings)} annunci")
         

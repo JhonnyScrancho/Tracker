@@ -6,7 +6,6 @@ from typing import List, Dict
 import streamlit as st
 
 
-
 @st.cache_data(ttl=3600)
 def calculate_dealer_stats(listings: List[Dict]) -> Dict:
     """Calcola statistiche aggregate per un concessionario"""
@@ -28,8 +27,8 @@ def calculate_dealer_stats(listings: List[Dict]) -> Dict:
     discounts = []
     listing_days = []
     
-    # Usa datetime naive per i confronti
-    now = datetime.utcnow()
+    # Usa datetime UTC aware 
+    now = datetime.now(timezone.utc)
     
     for listing in listings:
         # Calcolo prezzi
@@ -47,18 +46,24 @@ def calculate_dealer_stats(listings: List[Dict]) -> Dict:
             stats['discounted_cars'] += 1
             discounts.append(listing['discount_percentage'])
             
-        # Calcolo giorni in lista con gestione timezone sicura
+        # Calcolo giorni in lista con gestione timezone corretta
         first_seen = listing.get('first_seen')
         if first_seen:
             try:
-                # Converti first_seen in naive datetime se ha timezone
-                if first_seen.tzinfo is not None:
-                    first_seen = first_seen.replace(tzinfo=None)
+                # Se è naive, assumiamo sia UTC
+                if first_seen.tzinfo is None:
+                    first_seen = first_seen.replace(tzinfo=timezone.utc)
+                # Se ha timezone diverso da UTC, convertiamo
+                elif first_seen.tzinfo != timezone.utc:
+                    first_seen = first_seen.astimezone(timezone.utc)
+                    
                 days = (now - first_seen).days
-                if days >= 0:  # Validazione aggiuntiva
+                if days >= 0:
                     listing_days.append(days)
+                else:
+                    st.warning(f"Data anomala per listing {listing.get('id')}: {first_seen}")
             except Exception as e:
-                st.warning(f"Errore nel calcolo giorni per listing {listing.get('id')}: {str(e)}")
+                st.error(f"Errore elaborazione data per listing {listing.get('id')}: {first_seen} - {str(e)}")
             
         # Conteggio riapparizioni
         if listing.get('reappeared'):
