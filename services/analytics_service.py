@@ -102,9 +102,13 @@ class AnalyticsService:
             }
         
         # Statistiche inventario
+        now = pd.Timestamp.now(tz='UTC')  # Esplicito timezone UTC
         stats['inventory_stats'] = {
             'total_listings': len(df),
-            'avg_age': (datetime.now() - df['first_seen']).mean().days if 'first_seen' in df.columns else None,
+            'avg_age': (
+                (now - pd.to_datetime(df['first_seen']).dt.tz_localize('UTC')).mean().days
+                if 'first_seen' in df.columns else None
+            ),
             'plates_missing': len(df[df['plate'].isna()]) if 'plate' in df.columns else None
         }
         
@@ -117,14 +121,15 @@ class AnalyticsService:
         
         # Statistiche temporali
         if 'first_seen' in df.columns:
-            df['week'] = df['first_seen'].dt.isocalendar().week
+            df['week'] = pd.to_datetime(df['first_seen']).dt.tz_localize('UTC').dt.isocalendar().week
             weekly_counts = df.groupby('week').size()
             stats['temporal_stats'] = {
                 'weekly_avg': weekly_counts.mean(),
                 'weekly_std': weekly_counts.std()
             }
-            
+                
         return stats
+
 
     def detect_suspicious_patterns(self, dealer_id: str, threshold: float = 0.8) -> List[Dict]:
         """Rileva pattern sospetti negli annunci"""
@@ -189,6 +194,47 @@ class AnalyticsService:
         
         return patterns
 
+    def analyze_price_trends(self, history_data: List[Dict]) -> Dict:
+        """Analizza trend prezzi nel tempo"""
+        if not history_data:
+            return {}
+            
+        df = pd.DataFrame(history_data)
+        # Assicurati che tutte le date siano timezone-aware
+        df['date'] = pd.to_datetime(df['date']).dt.tz_localize('UTC')
+        df = df.sort_values('date')
+        
+        # Calcola variazioni settimanali
+        df['week'] = df['date'].dt.isocalendar().week
+        df['year'] = df['date'].dt.year
+        
+        # Raggruppa per settimana
+        weekly_avg = df.groupby(['year', 'week'])['price'].agg(['mean', 'count']).reset_index()
+        weekly_avg['pct_change'] = weekly_avg['mean'].pct_change() * 100
+        
+        trends = {
+            'weekly': {
+                'avg_prices': weekly_avg['mean'].tolist(),
+                'volumes': weekly_avg['count'].tolist(),
+                'changes': weekly_avg['pct_change'].dropna().tolist(),
+                'weeks': [f"{row['year']}-W{row['week']}" for _, row in weekly_avg.iterrows()]
+            }
+        }
+        
+        # Calcola trend mensili
+        df['month'] = df['date'].dt.month
+        monthly_avg = df.groupby(['year', 'month'])['price'].agg(['mean', 'count']).reset_index()
+        monthly_avg['pct_change'] = monthly_avg['mean'].pct_change() * 100
+        
+        trends['monthly'] = {
+            'avg_prices': monthly_avg['mean'].tolist(),
+            'volumes': monthly_avg['count'].tolist(),
+            'changes': monthly_avg['pct_change'].dropna().tolist(),
+            'months': [f"{row['year']}-{row['month']}" for _, row in monthly_avg.iterrows()]
+        }
+        
+        return trends
+    
     def get_market_insights(self, dealer_id: str) -> Dict:
         """Genera insights aggregati sul mercato"""
         listings = self.tracker.get_active_listings(dealer_id)
