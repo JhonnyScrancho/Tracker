@@ -11,12 +11,6 @@ from utils.datetime_utils import normalize_df_dates, calculate_date_diff, get_cu
 def calculate_dealer_stats(listings: List[Dict]) -> Dict:
     """
     Calcola statistiche aggregate per un concessionario
-    
-    Args:
-        listings: Lista di dizionari contenenti i dati degli annunci
-        
-    Returns:
-        Dict con le statistiche calcolate
     """
     stats = {
         'total_cars': len(listings),
@@ -40,7 +34,14 @@ def calculate_dealer_stats(listings: List[Dict]) -> Dict:
         
     # Converti lista in DataFrame per calcoli più efficienti
     df = pd.DataFrame(listings)
-    df = normalize_df_dates(df)
+    
+    # Helper function per gestione timezone
+    def safe_convert_to_utc(dt):
+        if isinstance(dt, str):
+            dt = pd.to_datetime(dt)
+        if dt.tzinfo is None:
+            return dt.tz_localize('UTC')
+        return dt.tz_convert('UTC')
     
     # Statistiche prezzi
     prices = []
@@ -75,36 +76,30 @@ def calculate_dealer_stats(listings: List[Dict]) -> Dict:
         if (listing.get('has_discount') and 
             listing.get('original_price') and 
             listing.get('discounted_price')):
-            
             original = listing['original_price']
             discounted = listing['discounted_price']
-            
-            if original > 0:  # Previene divisione per zero
+            if original > 0:
                 discount_pct = ((original - discounted) / original) * 100
-                if 0 <= discount_pct <= 100:  # Validazione sconto
+                if 0 <= discount_pct <= 100:
                     discounts.append(discount_pct)
                     stats['discounted_cars'] += 1
     
     if discounts:
         stats['avg_discount'] = sum(discounts) / len(discounts)
     
-    # Calcolo durata media annunci
-    now = get_current_time()
+    # Calcolo durata media annunci con gestione timezone corretta
+    now = pd.Timestamp.now(tz='UTC')
     listing_days = []
 
     for listing in listings:
-        first_seen = listing.get('first_seen')
-        if first_seen:
-            # Converti first_seen in datetime con timezone se è stringa
-            if isinstance(first_seen, str):
-                first_seen = pd.to_datetime(first_seen, utc=True)
-            # Assicurati che first_seen abbia timezone
-            elif first_seen.tzinfo is None:
-                first_seen = pd.to_datetime(first_seen, utc=True)
-                
-            days = (now - first_seen).days
-            if days >= 0:
-                listing_days.append(days)
+        if listing.get('first_seen'):
+            try:
+                first_seen = safe_convert_to_utc(pd.to_datetime(listing['first_seen']))
+                days = (now - first_seen).days
+                if days >= 0:
+                    listing_days.append(days)
+            except Exception:
+                continue
 
     if listing_days:
         stats['avg_days_listed'] = sum(listing_days) / len(listing_days)

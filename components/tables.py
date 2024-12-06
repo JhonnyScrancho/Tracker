@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from utils.formatting import format_price
 from datetime import datetime
+import pytz
 
 def show_listings_table(listings, highlight_anomalies=True):
     """Visualizza la tabella degli annunci con evidenziazione anomalie"""
@@ -11,6 +12,22 @@ def show_listings_table(listings, highlight_anomalies=True):
         
     try:
         df = pd.DataFrame(listings)
+        
+        # Helper function per date
+        def safe_convert_to_utc(dt):
+            if pd.isna(dt):
+                return None
+            if isinstance(dt, str):
+                dt = pd.to_datetime(dt)
+            if dt.tzinfo is None:
+                return dt.tz_localize('UTC')
+            return dt.tz_convert('UTC')
+        
+        # Converti le date in UTC
+        date_columns = ['first_seen', 'last_seen', 'created_at', 'updated_at']
+        for col in date_columns:
+            if col in df.columns:
+                df[col] = df[col].apply(lambda x: safe_convert_to_utc(pd.to_datetime(x)) if pd.notna(x) else None)
         
         # Calcola valori di riferimento per anomalie
         if highlight_anomalies and len(df) > 0:
@@ -115,10 +132,11 @@ def show_listings_table(listings, highlight_anomalies=True):
         df['targa'] = df.apply(format_plate_cell, axis=1)
         
         # Aggiungi età annuncio se disponibile
+        now = pd.Timestamp.now(tz='UTC')
         if 'first_seen' in df.columns:
             df['eta'] = df['first_seen'].apply(
                 lambda x: f'<div class="col-eta">'
-                         f'{(datetime.now() - x).days} giorni</div>'
+                         f'{(now - x).days} giorni</div>'
                 if pd.notna(x) else "N/D"
             )
         
@@ -184,8 +202,18 @@ def show_timeline_table(history_data):
         
     df = pd.DataFrame(history_data)
     
-    # Formatta colonne
-    df['date'] = pd.to_datetime(df['date']).dt.strftime('%d/%m/%Y %H:%M')
+    # Helper function per date
+    def safe_convert_to_utc(dt):
+        if pd.isna(dt):
+            return None
+        if isinstance(dt, str):
+            dt = pd.to_datetime(dt)
+        if dt.tzinfo is None:
+            return dt.tz_localize('UTC')
+        return dt.tz_convert('UTC')
+    
+    # Converti e formatta colonne
+    df['date'] = df['date'].apply(safe_convert_to_utc).dt.strftime('%d/%m/%Y %H:%M')
     df['price'] = df['price'].apply(lambda x: format_price(x) if pd.notna(x) else "N/D")
     
     # Formatta evento
