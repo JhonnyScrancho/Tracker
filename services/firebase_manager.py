@@ -23,11 +23,19 @@ class FirebaseManager:
             st.error(f"Errore connessione Firebase: {str(e)}")
             raise
 
-    def save_dealer(self, dealer_id: str, url: str):
-        """Salva o aggiorna i dati del concessionario"""
+    def save_dealer(self, dealer_id: str, url: str, no_targa: bool = False):
+        """
+        Salva o aggiorna i dati del concessionario
+        
+        Args:
+            dealer_id: ID del concessionario
+            url: URL del concessionario
+            no_targa: Flag che indica se il concessionario non mostra le targhe
+        """
         self.db.collection('dealers').document(dealer_id).set({
             'url': url,
             'active': True,
+            'no_targa': no_targa,
             'last_update': datetime.now(),
             'created_at': datetime.now()
         }, merge=True)
@@ -196,3 +204,32 @@ class FirebaseManager:
             .stream()
         
         return [event.to_dict() for event in history]
+    
+    def update_dealer_settings(self, dealer_id: str, settings: dict):
+        """
+        Aggiorna le impostazioni di un concessionario
+        
+        Args:
+            dealer_id: ID del concessionario
+            settings: Dizionario con le impostazioni da aggiornare
+        """
+        self.db.collection('dealers').document(dealer_id).update({
+            **settings,
+            'updated_at': datetime.now()
+        })
+
+    # Metodo di migrazione per aggiungere il campo no_targa ai dealer esistenti
+    def migrate_dealers_schema(self):
+        """Aggiunge il campo no_targa ai dealer esistenti se mancante"""
+        batch = self.db.batch()
+        dealers = self.db.collection('dealers').stream()
+        
+        for dealer in dealers:
+            dealer_data = dealer.to_dict()
+            if 'no_targa' not in dealer_data:
+                batch.update(dealer.reference, {
+                    'no_targa': False,
+                    'schema_updated_at': datetime.now()
+                })
+        
+        batch.commit()

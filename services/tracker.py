@@ -84,10 +84,22 @@ class AutoTracker:
         return None
 
     def scrape_dealer(self, dealer_url: str):
-        """Scarica e analizza tutti gli annunci di un concessionario"""
+        """Scarica e analizza gli annunci di un concessionario"""
         if not dealer_url:
             st.warning("Inserisci l'URL del concessionario")
             return []
+
+        # Recupera dealer_id dall'URL
+        dealer_id = dealer_url.split('/')[-1]
+        
+        # Recupera impostazioni dealer
+        dealer_doc = self.db.collection('dealers').document(dealer_id).get()
+        if not dealer_doc.exists:
+            st.error("❌ Concessionario non trovato")
+            return []
+            
+        dealer_data = dealer_doc.to_dict()
+        no_targa = dealer_data.get('no_targa', False)
 
         st.info("🔍 Inizio scraping della pagina...")
         
@@ -114,7 +126,6 @@ class AutoTracker:
             
             # Inizializzazione variabili
             all_listings = []
-            dealer_id = dealer_url.split('/')[-1]
             requests_per_minute = 20
             seconds_between_requests = 60.0 / requests_per_minute
             vision_requests_per_hour = 50
@@ -127,9 +138,9 @@ class AutoTracker:
             # Recupera gli annunci esistenti e loro dati
             existing_listings = {l['id']: l for l in self.get_active_listings(dealer_id)}
             
-            # Inizializza il servizio di visione solo se necessario
+            # Inizializza il servizio di visione solo se necessario e disponibile
             vision_service = None
-            if self.vision and 'vision' in st.secrets and 'api_key' in st.secrets['vision']:
+            if not no_targa and self.vision and 'vision' in st.secrets and 'api_key' in st.secrets['vision']:
                 vision_service = VisionService(st.secrets["vision"]["api_key"])
 
             # Processo ogni pagina
@@ -180,7 +191,7 @@ class AutoTracker:
                         version = version_elem.text.strip() if version_elem else ""
                         full_title = f"{title} {version}".strip()
 
-                        # ESTRAZIONE PREZZI
+                        # Estrazione prezzi
                         price_section = article.select_one('[data-testid="price-section"]')
                         prices = {
                             'original_price': None,
@@ -219,6 +230,7 @@ class AutoTracker:
                         
                         # Gestione delle richieste Vision in base ai limiti
                         should_process_vision = (
+                            not no_targa and
                             vision_service and
                             vision_requests_count < vision_requests_per_hour and
                             (not existing_listing or not existing_listing.get('plate'))
@@ -244,7 +256,7 @@ class AutoTracker:
                             images = self.get_listing_images(url)
                             if images:
                                 try:
-                                    # Aspetta per rispettare il rate limit di Grok
+                                    # Aspetta per rispettare il rate limit di Vision
                                     time.sleep(2)  # Minimo 2 secondi tra le richieste Vision
                                     
                                     vision_results = vision_service.analyze_vehicle_images(images)
@@ -261,8 +273,11 @@ class AutoTracker:
                                     else:
                                         st.error(f"❌ Errore analisi Vision: {str(e)}")
                         else:
-                            st.info("ℹ️ Salto analisi Vision (limite richieste raggiunto)")
-                                    
+                            if no_targa:
+                                st.info("ℹ️ Dealer configurato come NO Targa, salto analisi")
+                            else:
+                                st.info("ℹ️ Salto analisi Vision (limite richieste raggiunto)")
+                                        
                         # Creazione dizionario annuncio
                         listing = {
                             'id': listing_id,
@@ -290,7 +305,8 @@ class AutoTracker:
                                 'timestamp': datetime.now().isoformat()
                             } if vision_results else existing_listing.get('vision_cache') if existing_listing else {},
                             'scrape_date': datetime.now(),
-                            'active': True
+                            'active': True,
+                            'no_targa': no_targa  # Aggiungi il flag no_targa all'annuncio
                         }
 
                         # Se è un aggiornamento di un annuncio esistente, mantieni alcuni campi importanti
@@ -806,14 +822,38 @@ class AutoTracker:
             st.error(f"❌ Errore nel recupero dello storico: {str(e)}")
             return []
 
-    def save_dealer(self, dealer_id: str, url: str):
-        """Salva un nuovo concessionario"""
+    def save_dealer(self, dealer_id: str, url: str, no_targa: bool = False):
+        """
+        Salva un nuovo concessionario
+        
+        Args:
+            dealer_id: ID del concessionario
+            url: URL del concessionario
+            no_targa: Flag che indica se il concessionario non mostra le targhe
+        """
         self.db.collection('dealers').document(dealer_id).set({
             'url': url,
             'active': True,
-            'created_at': datetime.now(),
-            'last_update': datetime.now()
+            'no_targa': no_targa,
+            'last_update': datetime.now(timezone.utc),
+            'created_at': datetime.now(timezone.utc)
         }, merge=True)
+
+    def update_dealer_settings(self, dealer_id: str, settings: dict):
+        """
+        Aggiorna le impostazioni di un concessionario
+        
+        Args:
+            dealer_id: ID del concessionario
+            settings: Dizionario con le impostazioni da aggiornare
+        """
+        try:
+            self.db.collection('dealers').document(dealer_id).update({
+                **settings,
+                'updated_at': datetime.now(timezone.utc)
+            })
+        except Exception as e:
+            st.error(f"❌ Errore nell'aggiornamento impostazioni: {str(e)}")
 
     def get_dealers(self):
         """Recupera tutti i concessionari attivi"""

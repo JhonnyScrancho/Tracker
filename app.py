@@ -459,13 +459,18 @@ class AutoTrackerApp:
                 placeholder="https://www.autoscout24.it/concessionari/esempio"
             )
             
+            no_targa = st.checkbox(
+                "NO Targa",
+                help="Seleziona se il concessionario non mostra le targhe dei veicoli"
+            )
+            
             if st.form_submit_button("Aggiungi", use_container_width=True):
                 try:
                     dealer_id = url.split('/')[-1]
                     if not dealer_id:
                         st.error("❌ URL non valido")
                     else:
-                        self.tracker.save_dealer(dealer_id, url)
+                        self.tracker.save_dealer(dealer_id, url, no_targa)
                         st.success("✅ Concessionario aggiunto")
                         st.rerun()
                 except Exception as e:
@@ -480,8 +485,7 @@ class AutoTrackerApp:
         with st.form("scheduler_config"):
             enabled = st.toggle(
                 "Abilita aggiornamento automatico",
-                value=config.get('enabled', False),
-                help="Attiva o disattiva l'aggiornamento automatico di tutti i concessionari"
+                value=config.get('enabled', False)
             )
             
             col1, col2 = st.columns(2)
@@ -491,8 +495,7 @@ class AutoTrackerApp:
                     "Ora esecuzione (0-23)",
                     min_value=0,
                     max_value=23,
-                    value=config.get('hour', 1),
-                    help="Ora del giorno in cui eseguire l'aggiornamento"
+                    value=config.get('hour', 1)
                 )
                 
             with col2:
@@ -500,8 +503,7 @@ class AutoTrackerApp:
                     "Minuto esecuzione (0-59)",
                     min_value=0,
                     max_value=59,
-                    value=config.get('minute', 0),
-                    help="Minuto dell'ora in cui eseguire l'aggiornamento"
+                    value=config.get('minute', 0)
                 )
                 
             if st.form_submit_button("Salva Configurazione", use_container_width=True):
@@ -517,21 +519,9 @@ class AutoTrackerApp:
                     self.tracker.save_scheduler_config(new_config)
                     st.success("✅ Configurazione scheduler salvata")
                     
-                    # Mostra prossima esecuzione se abilitato
-                    if enabled:
-                        now = datetime.now()
-                        next_run = now.replace(hour=hour, minute=minute)
-                        if next_run < now:
-                            next_run = next_run.replace(day=next_run.day + 1)
-                        st.info(f"⏰ Prossima esecuzione: {next_run.strftime('%d/%m/%Y %H:%M')}")
-                    
                 except Exception as e:
                     st.error(f"❌ Errore nel salvataggio: {str(e)}")
                     
-        # Mostra stato ultimo aggiornamento
-        if config.get('last_update'):
-            st.caption(f"Ultimo aggiornamento automatico: {config['last_update'].strftime('%d/%m/%Y %H:%M')}")
-                
         # Lista dealers esistenti
         dealers = self.tracker.get_dealers()
         if dealers:
@@ -542,6 +532,18 @@ class AutoTrackerApp:
                     st.write(f"ID: {dealer['id']}")
                     if dealer.get('last_update'):
                         st.caption(f"Ultimo aggiornamento: {dealer['last_update'].strftime('%d/%m/%Y %H:%M')}")
+                    
+                    # Switch NO Targa
+                    no_targa = st.checkbox(
+                        "NO Targa",
+                        value=dealer.get('no_targa', False),
+                        key=f"no_targa_{dealer['id']}"
+                    )
+                    
+                    # Se il valore cambia, aggiorna il dealer
+                    if no_targa != dealer.get('no_targa', False):
+                        self.tracker.update_dealer_settings(dealer['id'], {'no_targa': no_targa})
+                        st.success("✅ Impostazioni aggiornate")
                         
                     col1, col2 = st.columns([3,1])
                     with col2:
