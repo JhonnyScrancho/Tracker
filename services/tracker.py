@@ -303,14 +303,19 @@ class AutoTracker:
                         pass
                 
                 # Se non troviamo informazioni sulla paginazione ma abbiamo un pulsante Next
-                next_button = pagination.select_one('button[aria-label="Successivo"]:not([aria-disabled="true"])')
-                if not next_button:
+                next_page_button = soup.select_one('li.prev-next button[aria-label="Successivo"]')
+                last_button = soup.select_one('li.prev-next.pagination-item--disabled button[aria-label="Successivo"]')
+
+                if last_button is not None:
+                    st.write("🏁 Raggiunta l'ultima pagina")
                     break
-                    
+                elif next_page_button is None:
+                    st.write("⚠️ Pulsante paginazione non trovato")
+                    break
+
+                # Se troviamo il pulsante Successivo e non è l'ultima pagina
                 page += 1
                 st.write(f"⏭️ Passaggio alla pagina {page}")
-                
-                # Rate limiting tra le pagine
                 time.sleep(seconds_between_requests)
             
             st.success(f"🎉 Scraping completato. Trovati {len(all_listings)} annunci totali")
