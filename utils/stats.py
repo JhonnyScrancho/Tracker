@@ -145,7 +145,7 @@ def calculate_dealer_stats(listings: List[Dict]) -> Dict:
 
 @st.cache_data(ttl=3600)
 def create_timeline_chart(history_data: List[Dict]) -> go.Figure:
-    """Crea grafico timeline delle attività con migliore leggibilità"""
+    """Crea grafico timeline delle attività"""
     if not history_data:
         return None
         
@@ -157,11 +157,11 @@ def create_timeline_chart(history_data: List[Dict]) -> go.Figure:
         latest = df[df['listing_id'] == listing_id].iloc[-1]
         details = latest.get('listing_details', {})
         
-        # Crea etichetta informativa
+        # Crea etichetta con targa e modello
         plate = details.get('plate', 'NO TARGA')
         title = details.get('title', '')
         if title:
-            # Estrai marca e modello
+            # Estrai marca e modello per l'etichetta
             parts = title.split(' ', 2)
             label = f"{plate} - {' '.join(parts[:2])}"
         else:
@@ -171,19 +171,19 @@ def create_timeline_chart(history_data: List[Dict]) -> go.Figure:
     
     fig = go.Figure()
     
-    # Definisci colori per eventi con significato intuitivo
+    # Definisci colori per eventi
     colors = {
-        'update': '#2E86C1',       # Blu - aggiornamento normale 
-        'removed': '#E74C3C',      # Rosso - rimozione
-        'reappeared': '#F39C12',   # Arancione - ricomparsa
-        'price_changed': '#27AE60'  # Verde - cambio prezzo
+        'update': '#2E86C1',      # Blu - aggiornamento
+        'removed': '#E74C3C',     # Rosso - rimozione
+        'reappeared': '#F39C12',  # Arancione - ricomparsa
+        'price_changed': '#27AE60' # Verde - cambio prezzo
     }
     
-    # Crea tracce per ogni veicolo con tooltip migliorati
+    # Crea tracce per ogni veicolo
     for listing_id in df['listing_id'].unique():
         vehicle_data = df[df['listing_id'] == listing_id]
         
-        # Aggiungi traccia principale con più informazioni nel tooltip
+        # Aggiungi traccia principale
         fig.add_trace(go.Scatter(
             x=vehicle_data['date'],
             y=[vehicle_details[listing_id]] * len(vehicle_data),
@@ -198,7 +198,7 @@ def create_timeline_chart(history_data: List[Dict]) -> go.Figure:
             customdata=vehicle_data['price'].fillna(0)
         ))
         
-        # Evidenzia eventi speciali con marker più visibili
+        # Evidenzia eventi speciali
         for event in ['removed', 'reappeared', 'price_changed']:
             event_data = vehicle_data[vehicle_data['event'] == event]
             if not event_data.empty:
@@ -221,7 +221,7 @@ def create_timeline_chart(history_data: List[Dict]) -> go.Figure:
                     customdata=event_data['price'].fillna(0)
                 ))
     
-    # Configura layout ottimizzato
+    # Configura layout
     fig.update_layout(
         title=dict(
             text="Timeline Attività Annunci",
@@ -254,7 +254,7 @@ def create_timeline_chart(history_data: List[Dict]) -> go.Figure:
         )
     )
     
-    # Aggiungi griglia per migliore leggibilità
+    # Aggiungi griglia
     fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='LightGray')
     fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='LightGray')
     
