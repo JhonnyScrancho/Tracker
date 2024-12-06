@@ -239,8 +239,6 @@ class AutoTracker:
                         if existing_listing and existing_listing.get('plate'):
                             # Se l'annuncio esiste già e ha una targa, mantieni i dati delle immagini esistenti
                             st.info(f"ℹ️ Annuncio {listing_id} già presente con targa - mantengo dati immagini esistenti")
-
-                            # Recupera immagini e risultati Vision esistenti 
                             images = existing_listing.get('image_urls', [])
                             vision_results = {
                                 'plate': existing_listing.get('plate'),
@@ -248,36 +246,30 @@ class AutoTracker:
                                 'vehicle_type': existing_listing.get('vehicle_type'),
                                 'last_plate_analysis': existing_listing.get('last_plate_analysis'),
                             }
-
                         elif should_process_vision:
                             # Nuovo annuncio o annuncio esistente senza targa
                             if not existing_listing:
                                 st.write("🆕 Nuovo annuncio, recupero immagini...")
                             else:
                                 st.write("🔄 Annuncio esistente senza targa, recupero immagini...")
-
-                            # Recupera e analizza le immagini 
+                                
                             images = self.get_listing_images(url)
                             if images:
                                 try:
-                                    # Rispetta il rate limit di Vision
-                                    time.sleep(2)
-
-                                    # Analizza le immagini
+                                    # Aspetta per rispettare il rate limit di Vision
+                                    time.sleep(2)  # Minimo 2 secondi tra le richieste Vision
+                                    
                                     vision_results = vision_service.analyze_vehicle_images(images)
                                     vision_requests_count += 1
-
-                                    # Mostra risultati
+                                    
                                     if vision_results and vision_results.get('plate'):
                                         st.success(f"✅ Targa rilevata: {vision_results['plate']} (confidenza: {vision_results['plate_confidence']:.2%})")
                                     else:
                                         st.warning("⚠️ Nessuna targa rilevata nelle immagini")
-
                                 except Exception as e:
-                                    # Gestione errori Vision API
                                     if "429" in str(e):
-                                        st.warning("⚠️ Limite richieste Vision raggiunto, salto analisi immagini") 
-                                        vision_requests_count = vision_requests_per_hour
+                                        st.warning("⚠️ Limite richieste Vision raggiunto, salto analisi immagini")
+                                        vision_requests_count = vision_requests_per_hour  # Ferma ulteriori tentativi
                                     else:
                                         st.error(f"❌ Errore analisi Vision: {str(e)}")
                         else:
