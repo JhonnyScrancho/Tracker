@@ -9,8 +9,16 @@ from utils.formatting import format_dealer_name
 root_dir = Path(__file__).parent
 sys.path.append(str(root_dir))
 
+# Import componenti esistenti
 from components.sidebar import show_sidebar
 from services.tracker import AutoTracker
+
+# Nuovi import
+from components.anomaly_dashboard import show_anomaly_dashboard
+from services.analytics_service import AnalyticsService
+from components.alerts import AlertSystem
+from components.reports import generate_weekly_report, show_trend_analysis
+from components.vehicle_comparison import show_comparison_view
 
 st.set_page_config(
     page_title="Auto Tracker",
@@ -104,6 +112,8 @@ class AutoTrackerApp:
     def __init__(self):
         """Inizializzazione dell'applicazione"""
         self.tracker = AutoTracker()
+        self.analytics = AnalyticsService(self.tracker)
+        self.alert_system = AlertSystem(self.tracker)
         self.init_session_state()
 
     def init_session_state(self):
@@ -112,7 +122,8 @@ class AutoTrackerApp:
             st.session_state.app_state = {
                 'update_status': {},
                 'settings_status': {},
-                'notifications': []
+                'notifications': [],
+                'selected_view': 'dashboard'
             }
 
     def show_notification(self, message, type="info"):
@@ -136,16 +147,13 @@ class AutoTrackerApp:
             now = datetime.now()
             last_update = scheduler_config.get('last_update')
             
-            # Se non c'è stato un aggiornamento oggi
             if not last_update or last_update.date() < now.date():
                 scheduled_time = now.replace(
                     hour=scheduler_config.get('hour', 1),
                     minute=scheduler_config.get('minute', 0)
                 )
 
-                # Se è l'ora di eseguire l'aggiornamento
                 if now >= scheduled_time:
-                    # Recupera tutti i dealer attivi
                     dealers = self.tracker.get_dealers()
                     
                     for dealer in dealers:
@@ -153,18 +161,19 @@ class AutoTrackerApp:
                             # Esegue lo scrape
                             listings = self.tracker.scrape_dealer(dealer['url'])
                             if listings:
-                                # Salva i nuovi annunci
                                 self.tracker.save_listings(listings)
-                                # Marca come inattivi gli annunci non più presenti
                                 self.tracker.mark_inactive_listings(
                                     dealer['id'], 
                                     [l['id'] for l in listings]
                                 )
+                                
+                                # Nuovo: analizza anomalie dopo aggiornamento
+                                self.alert_system.check_alert_conditions(dealer['id'])
+                                
                         except Exception as e:
                             st.error(f"❌ Errore scrape dealer {dealer['id']}: {str(e)}")
                             continue
 
-                    # Aggiorna timestamp ultimo aggiornamento
                     self.tracker.save_scheduler_config({
                         'last_update': now
                     })
@@ -177,35 +186,52 @@ class AutoTrackerApp:
     
     def run(self):
         """Esegue l'applicazione"""
-        # Inizializza il tracker
         dealers = self.tracker.get_dealers()
-
-        # Controlla scheduler
+        
+        # Controlla scheduler e mostra notifiche
         self.check_scheduler()
+        self.alert_system.show_notifications()
         
         # Mostra la sidebar
         selected_dealer = show_sidebar(self.tracker)
 
         # Main content
         if not dealers:
-            # Prima esecuzione - mostra welcome page
             st.title("👋 Benvenuto in Auto Tracker")
             st.info("Aggiungi un concessionario nella sezione impostazioni per iniziare")
             self.show_settings()
         else:
-            # Controlla la query string per determinare la pagina da mostrare
+            # Controlla query params
             dealer_id = st.query_params.get("dealer_id")
+            view = st.query_params.get("view", "dashboard")
 
-            if dealer_id == "settings":  # Nuovo caso per le impostazioni
+            if dealer_id == "settings":
                 self.show_settings()
             elif dealer_id:
-                # Mostra la vista del dealer specifico
-                self.show_dealer_view(dealer_id)
+                # Menu di navigazione per viste dealer
+                view = st.radio(
+                    "Seleziona Vista",
+                    ["Dashboard", "Anomalie", "Confronti", "Report", "Analisi"],
+                    horizontal=True,
+                    key="dealer_view"
+                )
+                
+                if view == "Dashboard":
+                    self.show_dealer_view(dealer_id)
+                elif view == "Anomalie":
+                    show_anomaly_dashboard(self.tracker, dealer_id)
+                elif view == "Confronti":
+                    listings = self.tracker.get_active_listings(dealer_id)
+                    show_comparison_view(self.tracker, listings)
+                elif view == "Report":
+                    report = generate_weekly_report(self.tracker, dealer_id)
+                    show_trend_analysis(self.tracker.get_dealer_history(dealer_id))
+                elif view == "Analisi":
+                    insights = self.analytics.get_market_insights(dealer_id)
+                    self.show_market_analysis(dealer_id, insights)
             else:
-                # Mostra la home page
                 self.show_home()
 
-            # Gestione notifiche in session state
             self._handle_notifications()
 
         # Footer con info aggiornamento
@@ -225,6 +251,48 @@ class AutoTrackerApp:
                     if last_update:
                         st.caption(f"📅 Ultimo aggiornamento: {last_update.strftime('%d/%m/%Y %H:%M')}")
 
+    
+    def show_market_analysis(self, dealer_id: str, insights: dict):
+        """Mostra analisi di mercato dettagliata"""
+        st.title("📊 Analisi di Mercato")
+        
+        # Overview
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric(
+                "Tasso Riapparizioni",
+                f"{insights['patterns'].get('reappearance_rate', 0):.1f}%"
+            )
+        with col2:
+            st.metric(
+                "Cambi Prezzo/Giorno",
+                f"{insights['patterns'].get('avg_price_changes', 0):.1f}"
+            )
+        with col3:
+            st.metric(
+                "Durata Media Annunci",
+                f"{insights['patterns'].get('listing_duration', 0):.0f} giorni"
+            )
+        
+        # Raccomandazioni
+        if insights.get('recommendations'):
+            st.subheader("📋 Raccomandazioni")
+            for rec in insights['recommendations']:
+                with st.expander(f"{'🔴' if rec['priority'] == 'high' else '🟡'} {rec['message']}"):
+                    st.write(f"Priorità: {rec['priority'].title()}")
+                    st.write(f"Tipo: {rec['type']}")
+
+        # Pattern sospetti
+        if insights.get('suspicious'):
+            st.subheader("⚠️ Pattern Sospetti")
+            for pattern in insights['suspicious']:
+                with st.expander(f"{pattern['type'].replace('_', ' ').title()}"):
+                    if 'listing_id' in pattern:
+                        st.write(f"Annuncio: {pattern['listing_id']}")
+                    if 'confidence' in pattern:
+                        st.progress(pattern['confidence'])
+    
+    
     def show_home(self):
         """Mostra la home page"""
         st.title("🏠 Dashboard")

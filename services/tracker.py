@@ -11,6 +11,8 @@ import time
 import cv2
 import numpy as np
 from services.vision_service import VisionService
+from services.analytics_service import AnalyticsService
+from utils.anomaly_detection import detect_price_anomalies, find_reappeared_vehicles
 
 
 class AutoTracker:
@@ -49,10 +51,11 @@ class AutoTracker:
             if 'vision' in st.secrets and 'api_key' in st.secrets['vision']:
                 api_key = st.secrets['vision']['api_key']
                 self.vision = VisionService(api_key)
-            else:
-                st.warning("⚠️ Configurazione Vision Service mancante - alcune funzionalità saranno disabilitate")
         except Exception as e:
             st.warning(f"⚠️ Vision Service non disponibile: {str(e)}")
+
+        # Initialize Analytics Service
+        self.analytics = AnalyticsService(self)
 
     def _wait_rate_limit(self):
         """Implementa rate limiting tra le richieste"""
@@ -510,7 +513,7 @@ class AutoTracker:
             return None
 
     def save_listings(self, listings):
-        """Salva o aggiorna gli annunci"""
+        """Salva o aggiorna gli annunci con tracciamento migliorato"""
         batch = self.db.batch()
         timestamp = datetime.now()
         
@@ -519,13 +522,14 @@ class AutoTracker:
         for listing in listings:
             doc_ref = self.db.collection('listings').document(listing['id'])
             
-            # Normalizzazione completa dei dati prima del salvataggio
+            # Normalizzazione completa dei dati
             normalized_listing = {
                 'id': listing['id'],
                 'active': True,
                 'dealer_id': listing['dealer_id'],
                 'title': listing.get('title', ''),
-                'url': listing.get('url', ''),  # Aggiunto campo url
+                'url': listing.get('url', ''),
+                'plate': listing.get('plate', ''),
                 'original_price': float(listing.get('original_price', 0)) if listing.get('original_price') else None,
                 'discounted_price': float(listing.get('discounted_price', 0)) if listing.get('discounted_price') else None,
                 'has_discount': bool(listing.get('has_discount', False)),
@@ -533,42 +537,119 @@ class AutoTracker:
                 'registration': listing.get('registration'),
                 'fuel': listing.get('fuel'),
                 'power': listing.get('power'),
-                'transmission': listing.get('transmission'),  # Aggiunto campo transmission
-                'consumption': listing.get('consumption'),    # Aggiunto campo consumption
+                'transmission': listing.get('transmission'),
+                'consumption': listing.get('consumption'),
                 'image_urls': listing.get('image_urls', []),
-                'plate': listing.get('plate'),               # Aggiunto campo plate
-                'last_seen': timestamp
+                'last_seen': timestamp,
+                'price_history': [],  # Nuovo: traccia storico prezzi
+                'reappearance_count': 0,  # Nuovo: conta riapparizioni
+                'status_changes': []  # Nuovo: traccia cambi stato
             }
             
-            print(f"Debug - Normalized listing data: {normalized_listing}")
-            
-            # Se è un nuovo annuncio, aggiungi data creazione
+            # Gestione documento esistente
             doc = doc_ref.get()
-            if not doc.exists:
+            if doc.exists:
+                existing_data = doc.to_dict()
+                
+                # Aggiorna storico prezzi se necessario
+                if existing_data.get('original_price') != normalized_listing['original_price']:
+                    price_history = existing_data.get('price_history', [])
+                    price_history.append({
+                        'price': existing_data['original_price'],
+                        'date': existing_data['last_seen']
+                    })
+                    normalized_listing['price_history'] = price_history
+
+                # Gestione riapparizioni
+                if not existing_data.get('active'):
+                    normalized_listing['reappearance_count'] = existing_data.get('reappearance_count', 0) + 1
+                    normalized_listing['reappeared'] = True
+                
+                # Mantieni dati importanti
+                normalized_listing['first_seen'] = existing_data.get('first_seen')
+                normalized_listing['plate_edited'] = existing_data.get('plate_edited')
+                normalized_listing['plate_edit_date'] = existing_data.get('plate_edit_date')
+            else:
                 normalized_listing['first_seen'] = timestamp
             
             batch.set(doc_ref, normalized_listing, merge=True)
             
-            # Registra evento nello storico
+            # Registra evento con dettagli migliorati
             history_ref = self.db.collection('history').document()
             history_data = {
                 'listing_id': listing['id'],
                 'dealer_id': listing['dealer_id'],
+                'plate': normalized_listing['plate'],
                 'price': normalized_listing['original_price'],
                 'discounted_price': normalized_listing['discounted_price'],
                 'date': timestamp,
                 'event': 'update',
-                'listing_details': {
+                'event_details': {
                     'plate': normalized_listing['plate'],
-                    'title': normalized_listing['title']
+                    'title': normalized_listing['title'],
+                    'reappeared': normalized_listing.get('reappeared', False),
+                    'price_changed': doc.exists and existing_data.get('original_price') != normalized_listing['original_price']
                 }
             }
             batch.set(history_ref, history_data)
         
-        print("Esecuzione batch commit")
         batch.commit()
-        print("Batch commit completato")
+        
+        # Analizza anomalie dopo salvataggio
+        self._analyze_new_listings(listings)
 
+    def _analyze_new_listings(self, listings: List[Dict]):
+        """Analizza nuovi annunci per anomalie"""
+        try:
+            for listing in listings:
+                dealer_history = self.get_dealer_history(listing['dealer_id'])
+                
+                # Controlla anomalie prezzo
+                price_anomalies = detect_price_anomalies(dealer_history)
+                if price_anomalies:
+                    self._save_anomaly(listing['id'], 'price', price_anomalies)
+                
+                # Controlla riapparizioni
+                reappearances = find_reappeared_vehicles(dealer_history)
+                if reappearances:
+                    self._save_anomaly(listing['id'], 'reappearance', reappearances)
+                    
+        except Exception as e:
+            st.error(f"Errore nell'analisi anomalie: {str(e)}")
+
+    def _save_anomaly(self, listing_id: str, anomaly_type: str, details: Dict):
+        """Salva un'anomalia rilevata"""
+        try:
+            self.db.collection('anomalies').add({
+                'listing_id': listing_id,
+                'type': anomaly_type,
+                'details': details,
+                'detected_at': datetime.now(),
+                'status': 'new'
+            })
+        except Exception as e:
+            st.error(f"Errore nel salvataggio anomalia: {str(e)}")
+
+    def get_anomalies(self, dealer_id: str, days: int = 30) -> List[Dict]:
+        """Recupera anomalie per un dealer"""
+        try:
+            # Recupera listing IDs del dealer
+            listings = self.get_active_listings(dealer_id)
+            listing_ids = [l['id'] for l in listings]
+            
+            # Query anomalie
+            cutoff = datetime.now() - timedelta(days=days)
+            anomalies = self.db.collection('anomalies')\
+                .where('listing_id', 'in', listing_ids)\
+                .where('detected_at', '>=', cutoff)\
+                .stream()
+                
+            return [anomaly.to_dict() for anomaly in anomalies]
+            
+        except Exception as e:
+            st.error(f"Errore nel recupero anomalie: {str(e)}")
+            return []
+    
     def mark_inactive_listings(self, dealer_id: str, active_ids: list):
         listings_ref = self.db.collection('listings')
         query = listings_ref.where('dealer_id', '==', dealer_id).where('active', '==', True)
@@ -768,25 +849,49 @@ class AutoTracker:
             print(f"Errore nel recupero degli annunci: {str(e)}")
             return []
         
+    
     def update_plate(self, listing_id: str, new_plate: str):
-        """
-        Aggiorna la targa di un annuncio
-        
-        Args:
-            listing_id: ID dell'annuncio
-            new_plate: Nuova targa
-        """
+        """Aggiorna targa con tracking modifiche"""
         try:
-            # Validazione della targa
             if new_plate and not re.match(r'^[A-Z]{2}\d{3,4}[A-Z]{2}$', new_plate.upper()):
                 st.error("❌ Formato targa non valido")
                 return False
 
-            # Aggiorna il documento
-            self.db.collection('listings').document(listing_id).update({
+            # Recupera dati esistenti
+            doc_ref = self.db.collection('listings').document(listing_id)
+            doc = doc_ref.get()
+            
+            if not doc.exists:
+                st.error("❌ Annuncio non trovato")
+                return False
+                
+            listing_data = doc.to_dict()
+            old_plate = listing_data.get('plate')
+            
+            # Aggiorna documento
+            update_data = {
                 'plate': new_plate.upper() if new_plate else None,
                 'plate_edited': True,
-                'plate_edit_date': datetime.now()
+                'plate_edit_date': datetime.now(),
+                'plate_history': listing_data.get('plate_history', []) + [{
+                    'old_plate': old_plate,
+                    'new_plate': new_plate.upper() if new_plate else None,
+                    'date': datetime.now()
+                }]
+            }
+            
+            doc_ref.update(update_data)
+            
+            # Registra modifica nello storico
+            self.db.collection('history').add({
+                'listing_id': listing_id,
+                'dealer_id': listing_data['dealer_id'],
+                'event': 'plate_changed',
+                'date': datetime.now(),
+                'details': {
+                    'old_plate': old_plate,
+                    'new_plate': new_plate.upper() if new_plate else None
+                }
             })
             
             return True
