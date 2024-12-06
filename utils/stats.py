@@ -1,14 +1,23 @@
-from datetime import datetime, timezone
+from datetime import datetime
 import pytz
 import pandas as pd
 import plotly.graph_objects as go
 from typing import List, Dict
 import streamlit as st
+from utils.datetime_utils import normalize_df_dates, calculate_date_diff, get_current_time
 
 
 @st.cache_data(ttl=3600)
 def calculate_dealer_stats(listings: List[Dict]) -> Dict:
-    """Calcola statistiche aggregate per un concessionario"""
+    """
+    Calcola statistiche aggregate per un concessionario
+    
+    Args:
+        listings: Lista di dizionari contenenti i dati degli annunci
+        
+    Returns:
+        Dict con le statistiche calcolate
+    """
     stats = {
         'total_cars': len(listings),
         'total_value': 0,
@@ -17,61 +26,123 @@ def calculate_dealer_stats(listings: List[Dict]) -> Dict:
         'discounted_cars': 0,
         'avg_discount': 0,
         'avg_days_listed': 0,
-        'reappeared_vehicles': 0
+        'reappeared_vehicles': 0,
+        'price_stats': {
+            'min': None,
+            'max': None,
+            'median': None,
+            'std': None
+        }
     }
     
     if not listings:
         return stats
         
-    prices = []
-    discounts = []
-    listing_days = []
+    # Converti lista in DataFrame per calcoli più efficienti
+    df = pd.DataFrame(listings)
+    df = normalize_df_dates(df)
     
-    # Forza tutto in UTC
-    now = pd.Timestamp.now(tz='UTC')
+    # Statistiche prezzi
+    prices = []
+    total_value = 0
     
     for listing in listings:
-        # Calcolo prezzi
         price = listing.get('original_price')
-        if price:
-            stats['total_value'] += price
+        if price and isinstance(price, (int, float)) and price > 0:
             prices.append(price)
+            total_value += price
+    
+    if prices:
+        stats['total_value'] = total_value
+        stats['avg_price'] = sum(prices) / len(prices)
+        
+        # Statistiche prezzi dettagliate
+        price_series = pd.Series(prices)
+        stats['price_stats'].update({
+            'min': price_series.min(),
+            'max': price_series.max(),
+            'median': price_series.median(),
+            'std': price_series.std()
+        })
+    
+    # Conteggio targhe mancanti
+    stats['missing_plates'] = sum(1 for listing in listings 
+                                if not listing.get('plate'))
+    
+    # Analisi sconti
+    discounts = []
+    for listing in listings:
+        if (listing.get('has_discount') and 
+            listing.get('original_price') and 
+            listing.get('discounted_price')):
             
-        # Conteggio targhe mancanti    
-        if not listing.get('plate'):
-            stats['missing_plates'] += 1
+            original = listing['original_price']
+            discounted = listing['discounted_price']
             
-        # Analisi sconti    
-        if listing.get('has_discount') and listing.get('discount_percentage'):
-            stats['discounted_cars'] += 1
-            discounts.append(listing['discount_percentage'])
-            
-        # Calcolo giorni in lista usando pandas per gestire i timezone
+            if original > 0:  # Previene divisione per zero
+                discount_pct = ((original - discounted) / original) * 100
+                if 0 <= discount_pct <= 100:  # Validazione sconto
+                    discounts.append(discount_pct)
+                    stats['discounted_cars'] += 1
+    
+    if discounts:
+        stats['avg_discount'] = sum(discounts) / len(discounts)
+    
+    # Calcolo durata media annunci
+    now = get_current_time()
+    listing_days = []
+    
+    for listing in listings:
         first_seen = listing.get('first_seen')
         if first_seen:
             try:
-                # Converti a Timestamp pandas che gestisce meglio i timezone
-                first_seen = pd.Timestamp(first_seen).tz_localize('UTC')
-                days = (now - first_seen).days
-                if days >= 0:
+                days = calculate_date_diff(first_seen, now)
+                if days is not None and days >= 0:
                     listing_days.append(days)
             except Exception as e:
-                st.error(f"Errore data listing {listing.get('id')}: {str(e)}")
-            
-        # Conteggio riapparizioni
-        if listing.get('reappeared'):
-            stats['reappeared_vehicles'] += 1
+                st.error(f"❌ Errore calcolo durata listing {listing.get('id')}: {str(e)}")
+                continue
     
-    # Calcolo medie
-    if prices:
-        stats['avg_price'] = sum(prices) / len(prices)
-        
-    if discounts:
-        stats['avg_discount'] = sum(discounts) / len(discounts)
-        
     if listing_days:
         stats['avg_days_listed'] = sum(listing_days) / len(listing_days)
-        
+    
+    # Conteggio riapparizioni
+    stats['reappeared_vehicles'] = sum(1 for listing in listings 
+                                     if listing.get('reappeared'))
+    
+    # Statistiche aggiuntive
+    stats.update({
+        'active_listings': len([l for l in listings if l.get('active', True)]),
+        'inactive_listings': len([l for l in listings if not l.get('active', True)]),
+        'avg_mileage': None,
+        'fuel_distribution': {},
+        'brand_distribution': {}
+    })
+    
+    # Calcolo chilometraggio medio
+    mileages = [l.get('mileage') for l in listings 
+                if l.get('mileage') and isinstance(l['mileage'], (int, float))]
+    if mileages:
+        stats['avg_mileage'] = sum(mileages) / len(mileages)
+    
+    # Distribuzione carburanti
+    if 'fuel' in df.columns:
+        fuel_counts = df['fuel'].value_counts().to_dict()
+        stats['fuel_distribution'] = {
+            str(k): int(v) for k, v in fuel_counts.items() if pd.notna(k)
+        }
+    
+    # Distribuzione marche
+    if 'title' in df.columns:
+        df['brand'] = df['title'].apply(lambda x: str(x).split()[0] if pd.notna(x) else None)
+        brand_counts = df['brand'].value_counts().to_dict()
+        stats['brand_distribution'] = {
+            str(k): int(v) for k, v in brand_counts.items() if pd.notna(k)
+        }
+    
+    # Aggiungi timestamp calcolo
+    stats['calculated_at'] = now.isoformat()
+    
     return stats
 
 @st.cache_data(ttl=3600)

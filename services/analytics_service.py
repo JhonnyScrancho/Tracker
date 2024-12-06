@@ -1,8 +1,9 @@
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 import streamlit as st
+from utils.datetime_utils import normalize_df_dates, get_current_time
 
 class AnalyticsService:
     def __init__(self, tracker):
@@ -17,9 +18,9 @@ class AnalyticsService:
             return {}
             
         df_history = pd.DataFrame(history)
-        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
-        # Assicurati che le date abbiano il timezone
-        df_history['date'] = pd.to_datetime(df_history['date']).dt.tz_localize('UTC')
+        df_history = normalize_df_dates(df_history)
+        
+        cutoff_date = get_current_time() - timedelta(days=days)
         df_history = df_history[df_history['date'] >= cutoff_date]
         
         patterns = {

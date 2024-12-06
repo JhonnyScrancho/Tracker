@@ -1,8 +1,9 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 import plotly.graph_objects as go
 from typing import List, Dict, Optional
+from utils.datetime_utils import normalize_df_dates, calculate_date_diff
 
 def show_anomaly_dashboard(tracker, dealer_id: str):
     """Mostra dashboard delle anomalie per un dealer"""
@@ -133,7 +134,8 @@ def show_reappearance_analysis(df_history: pd.DataFrame):
         st.info("Nessuna riapparizione rilevata")
 
 def show_temporal_analysis(df_history: pd.DataFrame, df_listings: pd.DataFrame):
-    """Mostra analisi temporale dei dati"""
+    df_history = normalize_df_dates(df_history)
+    df_listings = normalize_df_dates(df_listings)
     if df_history.empty:
         st.info("Dati insufficienti per l'analisi temporale")
         return

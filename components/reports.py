@@ -1,12 +1,15 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import pytz
 from typing import List, Dict, Optional
+from utils.datetime_utils import normalize_df_dates, get_current_time
 
 def generate_weekly_report(tracker, dealer_id: str) -> Dict:
     """Genera report settimanale delle attività"""
-    end_date = datetime.now(timezone.utc)
+    # Usa UTC per tutto
+    end_date = datetime.now(pytz.UTC)
     start_date = end_date - timedelta(days=7)
     
     # Recupera dati periodo
@@ -17,8 +20,10 @@ def generate_weekly_report(tracker, dealer_id: str) -> Dict:
         return {}
         
     df_history = pd.DataFrame(history)
-    # Assicurati che le date abbiano il timezone
-    df_history['date'] = pd.to_datetime(df_history['date']).dt.tz_localize('UTC')
+    # Converti date in UTC se non lo sono già
+    df_history['date'] = pd.to_datetime(df_history['date']).dt.tz_convert('UTC')
+    
+    # Filtra per periodo
     df_history = df_history[(df_history['date'] >= start_date) & 
                            (df_history['date'] <= end_date)]
     

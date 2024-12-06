@@ -13,6 +13,7 @@ import numpy as np
 from services.vision_service import VisionService
 from services.analytics_service import AnalyticsService
 from utils.anomaly_detection import detect_price_anomalies, find_reappeared_vehicles
+from utils.datetime_utils import get_current_time
 
 
 class AutoTracker:
@@ -515,7 +516,7 @@ class AutoTracker:
     def save_listings(self, listings):
         """Salva o aggiorna gli annunci con tracciamento migliorato"""
         batch = self.db.batch()
-        timestamp = datetime.now(timezone.utc) 
+        timestamp = get_current_time()
         
         print(f"Salvataggio di {len(listings)} annunci")
         
