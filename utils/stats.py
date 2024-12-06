@@ -154,36 +154,37 @@ def create_timeline_chart(history_data: List[Dict]) -> go.Figure:
     # Ottimizza dati veicoli per visualizzazione
     vehicle_details = {}
     for listing_id in df['listing_id'].unique():
+        # Prendi l'ultimo evento per avere i dati più recenti
         latest = df[df['listing_id'] == listing_id].iloc[-1]
-        details = latest.get('listing_details', {})
+        listing_details = latest.get('listing_details', {})
         
-        # Crea etichetta con targa e modello
-        plate = details.get('plate', 'NO TARGA')
-        title = details.get('title', '')
+        # Crea etichetta con targa e marca/modello
+        title = listing_details.get('title', '')
         if title:
-            # Estrai marca e modello per l'etichetta
-            parts = title.split(' ', 2)
-            label = f"{plate} - {' '.join(parts[:2])}"
+            # Estrai solo marca e modello dal titolo
+            brand_model = ' '.join(title.split()[:2])
+            plate = listing_details.get('plate', 'NO TARGA')
+            label = f"{brand_model} - {plate}"
         else:
-            label = f"{plate} - {listing_id[:8]}"
+            label = f"ID: {listing_id[:8]}"
             
         vehicle_details[listing_id] = label
     
     fig = go.Figure()
     
-    # Definisci colori per eventi
+    # Colori per gli eventi
     colors = {
-        'update': '#2E86C1',      # Blu - aggiornamento
-        'removed': '#E74C3C',     # Rosso - rimozione
-        'reappeared': '#F39C12',  # Arancione - ricomparsa
-        'price_changed': '#27AE60' # Verde - cambio prezzo
+        'update': '#2E86C1',      # Blu
+        'removed': '#E74C3C',     # Rosso
+        'reappeared': '#F39C12',  # Arancione
+        'price_changed': '#27AE60' # Verde
     }
     
     # Crea tracce per ogni veicolo
     for listing_id in df['listing_id'].unique():
         vehicle_data = df[df['listing_id'] == listing_id]
         
-        # Aggiungi traccia principale
+        # Traccia principale
         fig.add_trace(go.Scatter(
             x=vehicle_data['date'],
             y=[vehicle_details[listing_id]] * len(vehicle_data),
@@ -192,8 +193,7 @@ def create_timeline_chart(history_data: List[Dict]) -> go.Figure:
             line=dict(color=colors.get('update'), width=2),
             hovertemplate='<b>%{text}</b><br>' +
                          'Data: %{x|%d/%m/%Y %H:%M}<br>' +
-                         'Prezzo: €%{customdata:,.0f}<br>' +
-                         'Stato: %{text}',
+                         'Prezzo: €%{customdata:,.0f}',
             text=[f"Evento: {e.title()}" for e in vehicle_data['event']],
             customdata=vehicle_data['price'].fillna(0)
         ))
@@ -209,8 +209,7 @@ def create_timeline_chart(history_data: List[Dict]) -> go.Figure:
                     marker=dict(
                         symbol='star',
                         size=12,
-                        color=colors.get(event),
-                        line=dict(width=2, color='white')
+                        color=colors.get(event)
                     ),
                     name=event.title(),
                     showlegend=False,
@@ -221,40 +220,23 @@ def create_timeline_chart(history_data: List[Dict]) -> go.Figure:
                     customdata=event_data['price'].fillna(0)
                 ))
     
-    # Configura layout
+    # Layout
     fig.update_layout(
-        title=dict(
-            text="Timeline Attività Annunci",
-            x=0.5,
-            xanchor='center',
-            font=dict(size=20)
-        ),
+        title="Timeline Attività Annunci",
         xaxis_title="Data",
         yaxis_title="Veicolo",
         height=max(400, len(vehicle_details) * 40),
         showlegend=True,
         hovermode='closest',
+        plot_bgcolor='white',
         xaxis=dict(
             type='date',
             tickformat='%d/%m/%Y',
-            rangeslider=dict(visible=True),
-            tickfont=dict(size=12)
-        ),
-        yaxis=dict(
-            type='category',
-            tickfont=dict(size=12)
-        ),
-        plot_bgcolor='white',
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1
+            rangeslider=dict(visible=True)
         )
     )
     
-    # Aggiungi griglia
+    # Griglia
     fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='LightGray')
     fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='LightGray')
     

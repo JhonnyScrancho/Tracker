@@ -2,6 +2,8 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from typing import List, Dict, Tuple, Optional
+import cv2
+import requests
 
 def detect_price_anomalies(history_data: List[Dict], 
                           threshold: float = 0.2) -> List[Dict]:
@@ -40,9 +42,8 @@ def detect_price_anomalies(history_data: List[Dict],
     
     return anomalies
 
-def find_reappeared_vehicles(history_data: List[Dict], 
-                           min_days: int = 7) -> List[Dict]:
-    """Trova veicoli riapparsi dopo rimozione"""
+def find_reappeared_vehicles(history_data: List[Dict]) -> List[Dict]:
+    """Trova veicoli riapparsi con analisi immagini"""
     if not history_data:
         return []
     
@@ -54,23 +55,158 @@ def find_reappeared_vehicles(history_data: List[Dict],
         events = listing_data['event'].tolist()
         
         removed_date = None
+        removed_details = None
+        
         for idx, (event, row) in enumerate(zip(events, listing_data.iterrows())):
             if event == 'removed':
                 removed_date = row[1]['date']
+                removed_details = row[1].get('listing_details', {})
             elif event == 'update' and removed_date:
                 days_gone = (row[1]['date'] - removed_date).days
-                if days_gone >= min_days:
+                current_details = row[1].get('listing_details', {})
+                
+                # Confronta dettagli
+                matches = {
+                    'plate': removed_details.get('plate') == current_details.get('plate'),
+                    'title': removed_details.get('title') == current_details.get('title'),
+                    'image': False
+                }
+                
+                # Confronta immagini se disponibili
+                if (removed_details.get('image_urls') and 
+                    current_details.get('image_urls')):
+                    # Confronta solo la prima immagine
+                    img_score = image_similarity_score(
+                        removed_details['image_urls'][0],
+                        current_details['image_urls'][0]
+                    )
+                    matches['image'] = img_score > 0.8
+                
+                # Calcola confidence score complessivo
+                confidence = 0.0
+                if matches['plate']:  # Targa uguale
+                    confidence = 0.9
+                elif matches['image']:  # Immagine simile
+                    confidence = 0.8
+                elif matches['title']:  # Solo titolo uguale
+                    confidence = 0.3
+                
+                if confidence > 0.3:  # Soglia minima per segnalare
                     reappearances.append({
                         'listing_id': listing_id,
                         'removed_date': removed_date,
                         'reappeared_date': row[1]['date'],
                         'days_gone': days_gone,
+                        'confidence': confidence,
+                        'matches': matches,
                         'price_before': listing_data.iloc[idx-1]['price'] if idx > 0 else None,
                         'price_after': row[1]['price']
                     })
+                
                 removed_date = None
+                removed_details = None
     
     return reappearances
+
+def detect_duplicate_listings(listings: List[Dict], threshold: float = 0.8) -> List[Dict]:
+    """Identifica annunci duplicati"""
+    duplicates = []
+    
+    # Raggruppa per marca/modello per ridurre confronti
+    by_model = {}
+    for listing in listings:
+        model = ' '.join(listing.get('title', '').split()[:2])
+        if model:
+            if model not in by_model:
+                by_model[model] = []
+            by_model[model].append(listing)
+    
+    # Cerca duplicati in ogni gruppo
+    for model, model_listings in by_model.items():
+        if len(model_listings) < 2:
+            continue
+            
+        for i, listing1 in enumerate(model_listings):
+            for listing2 in model_listings[i+1:]:
+                matches = {
+                    'plate': False,
+                    'image': False,
+                    'price_diff': 0
+                }
+                
+                # Confronta targhe se disponibili
+                if listing1.get('plate') and listing2.get('plate'):
+                    matches['plate'] = listing1['plate'] == listing2['plate']
+                
+                # Confronta immagini
+                if (listing1.get('image_urls') and listing2.get('image_urls')):
+                    img_score = image_similarity_score(
+                        listing1['image_urls'][0],
+                        listing2['image_urls'][0]
+                    )
+                    matches['image'] = img_score > threshold
+                
+                # Calcola differenza prezzi
+                if listing1.get('original_price') and listing2.get('original_price'):
+                    price_diff = abs(listing1['original_price'] - listing2['original_price'])
+                    matches['price_diff'] = price_diff
+                
+                # Determina se è un duplicato
+                is_duplicate = False
+                confidence = 0.0
+                
+                if matches['plate']:  # Stessa targa
+                    is_duplicate = True
+                    confidence = 0.9
+                elif matches['image'] and matches['price_diff'] < 1000:  # Immagine simile e prezzo simile
+                    is_duplicate = True
+                    confidence = 0.8
+                
+                if is_duplicate:
+                    duplicates.append({
+                        'listing1_id': listing1['id'],
+                        'listing2_id': listing2['id'],
+                        'model': model,
+                        'confidence': confidence,
+                        'matches': matches,
+                        'detected_at': datetime.now()
+                    })
+    
+    return duplicates
+
+def image_similarity_score(img1_url: str, img2_url: str) -> float:
+    """
+    Calcola un punteggio di similarità tra due immagini
+    Returns: score tra 0 e 1 (1 = identiche)
+    """
+    try:
+        # Scarica immagini
+        def download_img(url):
+            response = requests.get(url)
+            img_array = np.asarray(bytearray(response.content), dtype=np.uint8)
+            return cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+        
+        img1 = download_img(img1_url)
+        img2 = download_img(img2_url)
+        
+        if img1 is None or img2 is None:
+            return 0.0
+            
+        # Ridimensiona alla stessa dimensione
+        size = (400, 300)
+        img1 = cv2.resize(img1, size)
+        img2 = cv2.resize(img2, size)
+        
+        # Converti in scala di grigi
+        gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
+        gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
+        
+        # Calcola score usando SSIM
+        score = cv2.matchTemplate(gray1, gray2, cv2.TM_CCOEFF_NORMED)
+        return float(score.max())
+        
+    except Exception:
+        return 0.0
 
 def analyze_listing_patterns(history_data: List[Dict]) -> List[Dict]:
     """Analizza pattern comportamentali degli annunci"""
