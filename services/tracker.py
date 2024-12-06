@@ -94,6 +94,12 @@ class AutoTracker:
         page = 1
         dealer_id = dealer_url.split('/')[-1]
         
+        # Rate limiting configuration
+        requests_per_minute = 20
+        seconds_between_requests = 60.0 / requests_per_minute
+        vision_requests_per_hour = 50  # Limite Grok Vision
+        vision_requests_count = 0
+        
         try:
             # Recupera gli annunci esistenti e loro dati
             existing_listings = {l['id']: l for l in self.get_active_listings(dealer_id)}
@@ -108,16 +114,21 @@ class AutoTracker:
                 page_url = f"{dealer_url}?page={page}"
                 st.write(f"📥 Scaricando pagina {page}...")
                 
+                # Aspetta per rispettare il rate limit
+                time.sleep(seconds_between_requests)
+                
                 response = requests.get(page_url, headers=self.session.headers, timeout=30)
                 response.raise_for_status()
                 
                 soup = BeautifulSoup(response.text, 'lxml')
+                
+                # Cerca gli annunci
                 articles = soup.select('article.dp-listing-item')
                 
                 if not articles:
                     if page == 1:
                         st.warning("⚠️ Nessun annuncio trovato nella pagina")
-                    break  # Se non ci sono più articoli, esci dal loop
+                    break
                     
                 st.write(f"🚗 Trovati {len(articles)} annunci nella pagina {page}")
 
@@ -182,6 +193,13 @@ class AutoTracker:
                         images = []
                         vision_results = {}
                         
+                        # Gestione delle richieste Vision in base ai limiti
+                        should_process_vision = (
+                            vision_service and
+                            vision_requests_count < vision_requests_per_hour and
+                            (not existing_listing or not existing_listing.get('plate'))
+                        )
+                        
                         if existing_listing and existing_listing.get('plate'):
                             # Se l'annuncio esiste già e ha una targa, mantieni i dati delle immagini esistenti
                             st.info(f"ℹ️ Annuncio {listing_id} già presente con targa - mantengo dati immagini esistenti")
@@ -192,7 +210,7 @@ class AutoTracker:
                                 'vehicle_type': existing_listing.get('vehicle_type'),
                                 'last_plate_analysis': existing_listing.get('last_plate_analysis'),
                             }
-                        else:
+                        elif should_process_vision:
                             # Nuovo annuncio o annuncio esistente senza targa
                             if not existing_listing:
                                 st.write("🆕 Nuovo annuncio, recupero immagini...")
@@ -200,12 +218,26 @@ class AutoTracker:
                                 st.write("🔄 Annuncio esistente senza targa, recupero immagini...")
                                 
                             images = self.get_listing_images(url)
-                            if images and vision_service:
-                                vision_results = vision_service.analyze_vehicle_images(images)
-                                if vision_results and vision_results.get('plate'):
-                                    st.success(f"✅ Targa rilevata: {vision_results['plate']} (confidenza: {vision_results['plate_confidence']:.2%})")
-                                else:
-                                    st.warning("⚠️ Nessuna targa rilevata nelle immagini")
+                            if images:
+                                try:
+                                    # Aspetta per rispettare il rate limit di Grok
+                                    time.sleep(2)  # Minimo 2 secondi tra le richieste Vision
+                                    
+                                    vision_results = vision_service.analyze_vehicle_images(images)
+                                    vision_requests_count += 1
+                                    
+                                    if vision_results and vision_results.get('plate'):
+                                        st.success(f"✅ Targa rilevata: {vision_results['plate']} (confidenza: {vision_results['plate_confidence']:.2%})")
+                                    else:
+                                        st.warning("⚠️ Nessuna targa rilevata nelle immagini")
+                                except Exception as e:
+                                    if "429" in str(e):
+                                        st.warning("⚠️ Limite richieste Vision raggiunto, salto analisi immagini")
+                                        vision_requests_count = vision_requests_per_hour  # Ferma ulteriori tentativi
+                                    else:
+                                        st.error(f"❌ Errore analisi Vision: {str(e)}")
+                        else:
+                            st.info("ℹ️ Salto analisi Vision (limite richieste raggiunto)")
                                     
                         # Creazione dizionario annuncio
                         listing = {
@@ -255,13 +287,31 @@ class AutoTracker:
                         st.error(f"❌ Errore nel parsing dell'annuncio: {str(e)}")
                         continue
                 
-                # Verifica se c'è una pagina successiva
-                next_button = soup.select_one('button[aria-label="Successivo"]:not([aria-disabled="true"])')
+                # Controllo paginazione più robusto
+                pagination = soup.select_one('.scr-pagination')
+                if not pagination:
+                    break
+                    
+                # Verifica se la pagina corrente è l'ultima
+                current_page_indicator = pagination.select_one('.pagination-item--page-indicator')
+                if current_page_indicator:
+                    try:
+                        total_pages = int(current_page_indicator.text.split('/')[-1].strip())
+                        if page >= total_pages:
+                            break
+                    except:
+                        pass
+                
+                # Se non troviamo informazioni sulla paginazione ma abbiamo un pulsante Next
+                next_button = pagination.select_one('button[aria-label="Successivo"]:not([aria-disabled="true"])')
                 if not next_button:
                     break
                     
                 page += 1
-                time.sleep(self.delay)  # Rispetta il rate limiting
+                st.write(f"⏭️ Passaggio alla pagina {page}")
+                
+                # Rate limiting tra le pagine
+                time.sleep(seconds_between_requests)
             
             st.success(f"🎉 Scraping completato. Trovati {len(all_listings)} annunci totali")
             return all_listings
