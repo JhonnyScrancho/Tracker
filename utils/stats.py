@@ -91,18 +91,21 @@ def calculate_dealer_stats(listings: List[Dict]) -> Dict:
     # Calcolo durata media annunci
     now = get_current_time()
     listing_days = []
-    
+
     for listing in listings:
         first_seen = listing.get('first_seen')
         if first_seen:
-            try:
-                days = calculate_date_diff(first_seen, now)
-                if days is not None and days >= 0:
-                    listing_days.append(days)
-            except Exception as e:
-                st.error(f"❌ Errore calcolo durata listing {listing.get('id')}: {str(e)}")
-                continue
-    
+            # Converti first_seen in datetime con timezone se è stringa
+            if isinstance(first_seen, str):
+                first_seen = pd.to_datetime(first_seen, utc=True)
+            # Assicurati che first_seen abbia timezone
+            elif first_seen.tzinfo is None:
+                first_seen = pd.to_datetime(first_seen, utc=True)
+                
+            days = (now - first_seen).days
+            if days >= 0:
+                listing_days.append(days)
+
     if listing_days:
         stats['avg_days_listed'] = sum(listing_days) / len(listing_days)
     

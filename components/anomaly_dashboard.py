@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime
 import plotly.graph_objects as go
 from typing import List, Dict, Optional
-from utils.datetime_utils import normalize_df_dates, calculate_date_diff
+from utils.datetime_utils import normalize_df_dates, get_current_time, calculate_date_diff
 
 def show_anomaly_dashboard(tracker, dealer_id: str):
     """Mostra dashboard delle anomalie per un dealer"""
@@ -134,8 +134,17 @@ def show_reappearance_analysis(df_history: pd.DataFrame):
         st.info("Nessuna riapparizione rilevata")
 
 def show_temporal_analysis(df_history: pd.DataFrame, df_listings: pd.DataFrame):
+    """
+    Mostra analisi temporale delle attività per un dealer
+    
+    Args:
+        df_history: DataFrame con storico attività
+        df_listings: DataFrame con annunci attivi
+    """
+    # Normalizza le date nei DataFrame
     df_history = normalize_df_dates(df_history)
     df_listings = normalize_df_dates(df_listings)
+    
     if df_history.empty:
         st.info("Dati insufficienti per l'analisi temporale")
         return
@@ -148,9 +157,10 @@ def show_temporal_analysis(df_history: pd.DataFrame, df_listings: pd.DataFrame):
     
     # Colori per tipo evento
     colors = {
-        'update': 'blue',
-        'removed': 'red',
-        'price_changed': 'green'
+        'update': 'rgb(46, 134, 193)',     # Blu
+        'removed': 'rgb(231, 76, 60)',      # Rosso
+        'price_changed': 'rgb(39, 174, 96)', # Verde
+        'reappeared': 'rgb(243, 156, 18)'   # Arancione
     }
     
     # Crea una traccia per ogni tipo di evento
@@ -161,47 +171,89 @@ def show_temporal_analysis(df_history: pd.DataFrame, df_listings: pd.DataFrame):
             y=event_data['count'],
             mode='lines+markers',
             name=event.title(),
-            line=dict(color=colors.get(event, 'gray')),
-            hovertemplate='Data: %{x}<br>' +
-                         'Eventi: %{y}'
+            line=dict(color=colors.get(event, 'gray'), width=2),
+            hovertemplate='Data: %{x|%d/%m/%Y}<br>' +
+                         'Eventi: %{y}<br>' +
+                         f'Tipo: {event.title()}'
         ))
     
     fig.update_layout(
-        title="Distribuzione Eventi nel Tempo",
+        title=dict(
+            text="Distribuzione Eventi nel Tempo",
+            x=0.5,
+            xanchor='center'
+        ),
         xaxis_title="Data",
         yaxis_title="Numero Eventi",
         height=400,
         showlegend=True,
-        hovermode='x unified'
+        hovermode='x unified',
+        plot_bgcolor='white',
+        yaxis=dict(
+            gridcolor='LightGray',
+            gridwidth=1
+        ),
+        xaxis=dict(
+            gridcolor='LightGray',
+            gridwidth=1,
+            rangeslider=dict(visible=True)
+        )
     )
     
     st.plotly_chart(fig, use_container_width=True)
 
-    # Statistiche temporali
+    # Statistiche temporali in colonne
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        # Tempo medio di permanenza
-        active_days = []
-        for _, listing in df_listings.iterrows():
-            if listing.get('first_seen'):
-                days = (datetime.now() - listing['first_seen']).days
-                active_days.append(days)
-        if active_days:
-            avg_days = sum(active_days) / len(active_days)
-            st.metric("Permanenza Media", f"{avg_days:.1f} giorni")
+        try:
+            # Tempo medio di permanenza
+            active_days = []
+            now = get_current_time()
             
+            for _, listing in df_listings.iterrows():
+                if pd.notna(listing.get('first_seen')):
+                    days = calculate_date_diff(listing['first_seen'], now)
+                    if days is not None and days >= 0:
+                        active_days.append(days)
+                        
+            if active_days:
+                avg_days = sum(active_days) / len(active_days)
+                st.metric("Permanenza Media", f"{avg_days:.1f} giorni")
+            else:
+                st.metric("Permanenza Media", "N/D")
+                
+        except Exception as e:
+            st.error(f"Errore calcolo permanenza media: {str(e)}")
+            st.metric("Permanenza Media", "Errore")
+    
     with col2:
-        # Frequenza rimozioni
-        total_removed = len(df_history[df_history['event'] == 'removed'])
-        total_days = (df_history['date'].max() - df_history['date'].min()).days
-        if total_days > 0:
-            removal_rate = total_removed / total_days * 7  # settimanale
-            st.metric("Rimozioni/Settimana", f"{removal_rate:.1f}")
+        try:
+            # Frequenza rimozioni
+            total_removed = len(df_history[df_history['event'] == 'removed'])
+            date_range = (df_history['date'].max() - df_history['date'].min()).total_seconds() / (24 * 3600)
             
+            if date_range > 0:
+                removal_rate = total_removed / date_range * 7  # settimanale
+                st.metric("Rimozioni/Settimana", f"{removal_rate:.1f}")
+            else:
+                st.metric("Rimozioni/Settimana", "N/D")
+                
+        except Exception as e:
+            st.error(f"Errore calcolo frequenza rimozioni: {str(e)}")
+            st.metric("Rimozioni/Settimana", "Errore")
+    
     with col3:
-        # Tasso di riapparizione
-        reappearances = len(df_history[df_history['event'] == 'reappeared'])
-        if total_removed > 0:
-            reapp_rate = reappearances / total_removed * 100
-            st.metric("Tasso Riapparizione", f"{reapp_rate:.1f}%")
+        try:
+            # Tasso di riapparizione
+            reappearances = len(df_history[df_history['event'] == 'reappeared'])
+            
+            if total_removed > 0:
+                reapp_rate = reappearances / total_removed * 100
+                st.metric("Tasso Riapparizione", f"{reapp_rate:.1f}%")
+            else:
+                st.metric("Tasso Riapparizione", "N/D")
+                
+        except Exception as e:
+            st.error(f"Errore calcolo tasso riapparizione: {str(e)}")
+            st.metric("Tasso Riapparizione", "Errore")

@@ -1,58 +1,83 @@
 # utils/datetime_utils.py
 
-import pandas as pd
 from datetime import datetime
 import pytz
+import pandas as pd
+from typing import Optional, Union
 
-def ensure_tz_aware(dt):
+def get_current_time() -> datetime:
+    """Restituisce il timestamp corrente in UTC"""
+    return datetime.now(pytz.UTC)
+
+def normalize_datetime(dt: Optional[Union[datetime, str]]) -> Optional[datetime]:
     """
-    Assicura che un datetime sia timezone-aware, convertendolo in UTC se necessario
+    Normalizza un datetime assicurandosi che sia timezone-aware in UTC
+    
+    Args:
+        dt: datetime object o stringa ISO
+        
+    Returns:
+        datetime normalizzato in UTC o None se input invalido
     """
     if dt is None:
         return None
-    if pd.isna(dt):
-        return None
         
-    if isinstance(dt, pd.Timestamp):
-        if dt.tz is None:
-            return dt.tz_localize('UTC')
-        return dt.tz_convert('UTC')
-    
-    if isinstance(dt, datetime):
+    try:
+        # Se è una stringa, prova a parsarla
+        if isinstance(dt, str):
+            dt = pd.to_datetime(dt)
+            
+        # Se è naive, assumiamo sia UTC
         if dt.tzinfo is None:
-            return pytz.UTC.localize(dt)
-        return dt.astimezone(pytz.UTC)
+            dt = pytz.UTC.localize(dt)
+        # Altrimenti convertiamo in UTC
+        else:
+            dt = dt.astimezone(pytz.UTC)
+            
+        return dt
         
-    return None
+    except Exception:
+        return None
 
-def normalize_df_dates(df, date_columns=['date', 'first_seen', 'last_seen']):
+def normalize_df_dates(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Normalizza le colonne data di un DataFrame assicurando che siano tutte timezone-aware
+    Normalizza tutte le colonne datetime in un DataFrame
+    
+    Args:
+        df: DataFrame da normalizzare
+        
+    Returns:
+        DataFrame con date normalizzate
     """
     df = df.copy()
+    
+    date_columns = [
+        'date', 'first_seen', 'last_seen', 'created_at', 
+        'updated_at', 'removed_at', 'reappeared_at'
+    ]
+    
     for col in date_columns:
         if col in df.columns:
-            df[col] = pd.to_datetime(df[col])
-            # Gestisce sia date naive che aware
-            df[col] = df[col].apply(ensure_tz_aware)
+            df[col] = pd.to_datetime(df[col], utc=True)
+            
     return df
 
-def get_current_time():
+def calculate_date_diff(start: Union[datetime, str], 
+                       end: Union[datetime, str]) -> Optional[int]:
     """
-    Restituisce il timestamp corrente in UTC
-    """
-    return datetime.now(pytz.UTC)
-
-def calculate_date_diff(start_date, end_date=None):
-    """
-    Calcola la differenza in giorni tra due date, gestendo correttamente i timezone
-    """
-    if end_date is None:
-        end_date = get_current_time()
-        
-    start = ensure_tz_aware(start_date)
-    end = ensure_tz_aware(end_date)
+    Calcola la differenza in giorni tra due date gestendo i timezone
     
-    if start and end:
-        return (end - start).days
-    return None
+    Args:
+        start: Data iniziale
+        end: Data finale
+        
+    Returns:
+        Differenza in giorni o None se input invalido
+    """
+    start_dt = normalize_datetime(start)
+    end_dt = normalize_datetime(end)
+    
+    if start_dt is None or end_dt is None:
+        return None
+        
+    return (end_dt - start_dt).days

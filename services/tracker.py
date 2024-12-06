@@ -13,7 +13,7 @@ import numpy as np
 from services.vision_service import VisionService
 from services.analytics_service import AnalyticsService
 from utils.anomaly_detection import detect_price_anomalies, find_reappeared_vehicles
-from utils.datetime_utils import get_current_time
+from utils.datetime_utils import get_current_time, normalize_datetime
 
 
 class AutoTracker:
@@ -652,29 +652,35 @@ class AutoTracker:
             return []
     
     def mark_inactive_listings(self, dealer_id: str, active_ids: list):
+        """Marca come inattivi gli annunci non più presenti"""
         listings_ref = self.db.collection('listings')
         query = listings_ref.where('dealer_id', '==', dealer_id).where('active', '==', True)
         
         batch = self.db.batch()
+        current_time = get_current_time() # Usa UTC
         
         for doc in query.stream():
             if doc.id not in active_ids:
                 doc_ref = listings_ref.document(doc.id)
+                listing_data = doc.to_dict()
+                
+                # Marca annuncio come inattivo usando UTC
                 batch.update(doc_ref, {
                     'active': False,
-                    'deactivation_date': datetime.now()
+                    'deactivation_date': current_time
                 })
                 
+                # Registra rimozione nello storico usando UTC
                 history_ref = self.db.collection('history').document()
                 history_data = {
                     'listing_id': doc.id,
                     'dealer_id': dealer_id,
-                    'date': datetime.now(),
+                    'date': current_time,
                     'event': 'removed',
-                    'listing_details': doc.to_dict()
+                    'listing_details': listing_data
                 }
                 batch.set(history_ref, history_data)
-                
+        
         batch.commit()
 
     def get_dealer_stats(self, dealer_id: str):

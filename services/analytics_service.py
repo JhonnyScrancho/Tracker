@@ -3,7 +3,7 @@ import numpy as np
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 import streamlit as st
-from utils.datetime_utils import normalize_df_dates, get_current_time
+from utils.datetime_utils import get_current_time, calculate_date_diff, normalize_df_dates
 
 class AnalyticsService:
     def __init__(self, tracker):
@@ -66,8 +66,9 @@ class AnalyticsService:
         # Calcola durata media annunci
         for listing in listings:
             if listing.get('first_seen'):
-                duration = (datetime.now() - listing['first_seen']).days
-                patterns['listing_duration'] += duration
+                duration = calculate_date_diff(listing['first_seen'], get_current_time())
+                if duration is not None:
+                    patterns['listing_duration'] += duration
         
         if listings:
             patterns['listing_duration'] /= len(listings)
