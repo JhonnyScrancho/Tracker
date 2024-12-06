@@ -230,12 +230,12 @@ class AutoTracker:
                         
                         # Gestione delle richieste Vision in base ai limiti
                         should_process_vision = (
-                            not no_targa and
-                            vision_service and
+                            not no_targa and  # Solo l'OCR viene saltato se no_targa è True
+                            vision_service and 
                             vision_requests_count < vision_requests_per_hour and
                             (not existing_listing or not existing_listing.get('plate'))
                         )
-                        
+                                                
                         if existing_listing and existing_listing.get('plate'):
                             # Se l'annuncio esiste già e ha una targa, mantieni i dati delle immagini esistenti
                             st.info(f"ℹ️ Annuncio {listing_id} già presente con targa - mantengo dati immagini esistenti")
@@ -246,19 +246,20 @@ class AutoTracker:
                                 'vehicle_type': existing_listing.get('vehicle_type'),
                                 'last_plate_analysis': existing_listing.get('last_plate_analysis'),
                             }
-                        elif should_process_vision:
+                        else:
                             # Nuovo annuncio o annuncio esistente senza targa
                             if not existing_listing:
                                 st.write("🆕 Nuovo annuncio, recupero immagini...")
                             else:
                                 st.write("🔄 Annuncio esistente senza targa, recupero immagini...")
                                 
+                            # Recupera sempre le immagini, indipendentemente da no_targa
                             images = self.get_listing_images(url)
-                            if images:
+                            
+                            # Esegui l'analisi OCR solo se no_targa è False
+                            if images and should_process_vision:
                                 try:
-                                    # Aspetta per rispettare il rate limit di Vision
                                     time.sleep(2)  # Minimo 2 secondi tra le richieste Vision
-                                    
                                     vision_results = vision_service.analyze_vehicle_images(images)
                                     vision_requests_count += 1
                                     
@@ -269,14 +270,15 @@ class AutoTracker:
                                 except Exception as e:
                                     if "429" in str(e):
                                         st.warning("⚠️ Limite richieste Vision raggiunto, salto analisi immagini")
-                                        vision_requests_count = vision_requests_per_hour  # Ferma ulteriori tentativi
+                                        vision_requests_count = vision_requests_per_hour
                                     else:
                                         st.error(f"❌ Errore analisi Vision: {str(e)}")
-                        else:
-                            if no_targa:
-                                st.info("ℹ️ Dealer configurato come NO Targa, salto analisi")
                             else:
-                                st.info("ℹ️ Salto analisi Vision (limite richieste raggiunto)")
+                                vision_results = {}
+                                if no_targa:
+                                    st.info("ℹ️ Dealer configurato come NO Targa, salto analisi OCR")
+                                else:
+                                    st.info("ℹ️ Salto analisi Vision (limite richieste raggiunto)")
                                         
                         # Creazione dizionario annuncio
                         listing = {
