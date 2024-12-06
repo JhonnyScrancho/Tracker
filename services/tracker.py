@@ -90,17 +90,40 @@ class AutoTracker:
             return []
 
         st.info("🔍 Inizio scraping della pagina...")
-        all_listings = []
-        page = 1
-        dealer_id = dealer_url.split('/')[-1]
-        
-        # Rate limiting configuration
-        requests_per_minute = 20
-        seconds_between_requests = 60.0 / requests_per_minute
-        vision_requests_per_hour = 50  # Limite Grok Vision
-        vision_requests_count = 0
         
         try:
+            # Controllo iniziale della paginazione
+            response = requests.get(dealer_url, headers=self.session.headers, timeout=30)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.text, 'lxml')
+            
+            # Cerca il div della paginazione
+            pagination = soup.select_one('.scr-pagination')
+            total_pages = 1
+            
+            if pagination:
+                # Cerca l'indicatore pagina totale (es: "1 / 5")
+                page_indicator = pagination.select_one('.pagination-item--page-indicator')
+                if page_indicator:
+                    try:
+                        total_pages = int(page_indicator.text.split('/')[-1].strip())
+                        st.info(f"📚 Rilevate {total_pages} pagine da processare")
+                    except:
+                        st.warning("⚠️ Non riesco a determinare il numero totale di pagine")
+            
+            # Inizializzazione variabili
+            all_listings = []
+            dealer_id = dealer_url.split('/')[-1]
+            requests_per_minute = 20
+            seconds_between_requests = 60.0 / requests_per_minute
+            vision_requests_per_hour = 50
+            vision_requests_count = 0
+            
+            # Stima tempo totale
+            estimated_time = total_pages * seconds_between_requests
+            st.write(f"⏱️ Tempo stimato: circa {estimated_time/60:.1f} minuti")
+            
             # Recupera gli annunci esistenti e loro dati
             existing_listings = {l['id']: l for l in self.get_active_listings(dealer_id)}
             
@@ -109,10 +132,12 @@ class AutoTracker:
             if self.vision and 'vision' in st.secrets and 'api_key' in st.secrets['vision']:
                 vision_service = VisionService(st.secrets["vision"]["api_key"])
 
-            while True:
+            # Processo ogni pagina
+            for page in range(1, total_pages + 1):
+                st.write(f"📄 Processando pagina {page}/{total_pages}")
+                
                 # Costruisci URL con parametro pagina
-                page_url = f"{dealer_url}?page={page}"
-                st.write(f"📥 Scaricando pagina {page}...")
+                page_url = f"{dealer_url}?page={page}" if page > 1 else dealer_url
                 
                 # Aspetta per rispettare il rate limit
                 time.sleep(seconds_between_requests)
@@ -126,9 +151,8 @@ class AutoTracker:
                 articles = soup.select('article.dp-listing-item')
                 
                 if not articles:
-                    if page == 1:
-                        st.warning("⚠️ Nessun annuncio trovato nella pagina")
-                    break
+                    st.warning(f"⚠️ Nessun annuncio trovato nella pagina {page}")
+                    continue
                     
                 st.write(f"🚗 Trovati {len(articles)} annunci nella pagina {page}")
 
@@ -286,37 +310,6 @@ class AutoTracker:
                     except Exception as e:
                         st.error(f"❌ Errore nel parsing dell'annuncio: {str(e)}")
                         continue
-                
-                # Controllo paginazione più robusto
-                pagination = soup.select_one('.scr-pagination')
-                if not pagination:
-                    break
-                    
-                # Verifica se la pagina corrente è l'ultima
-                current_page_indicator = pagination.select_one('.pagination-item--page-indicator')
-                if current_page_indicator:
-                    try:
-                        total_pages = int(current_page_indicator.text.split('/')[-1].strip())
-                        if page >= total_pages:
-                            break
-                    except:
-                        pass
-                
-                # Se non troviamo informazioni sulla paginazione ma abbiamo un pulsante Next
-                next_page_button = soup.select_one('li.prev-next button[aria-label="Successivo"]')
-                last_button = soup.select_one('li.prev-next.pagination-item--disabled button[aria-label="Successivo"]')
-
-                if last_button is not None:
-                    st.write("🏁 Raggiunta l'ultima pagina")
-                    break
-                elif next_page_button is None:
-                    st.write("⚠️ Pulsante paginazione non trovato")
-                    break
-
-                # Se troviamo il pulsante Successivo e non è l'ultima pagina
-                page += 1
-                st.write(f"⏭️ Passaggio alla pagina {page}")
-                time.sleep(seconds_between_requests)
             
             st.success(f"🎉 Scraping completato. Trovati {len(all_listings)} annunci totali")
             return all_listings
