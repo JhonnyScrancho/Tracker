@@ -880,7 +880,7 @@ class AutoTracker:
             })
             return
             
-        # Hard delete
+        # Hard delete - elimina tutti i dati associati
         batch = self.db.batch()
         
         # 1. Elimina il dealer

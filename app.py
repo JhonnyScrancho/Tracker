@@ -548,11 +548,23 @@ class AutoTrackerApp:
                     col1, col2 = st.columns([3,1])
                     with col2:
                         if st.button("❌ Rimuovi", key=f"remove_{dealer['id']}", use_container_width=True):
+                            # Aggiunto radio button per scegliere il tipo di eliminazione
+                            delete_type = st.radio(
+                                "Tipo di eliminazione",
+                                ["Soft Delete (nasconde)", "Hard Delete (elimina tutto)"],
+                                key=f"delete_type_{dealer['id']}"
+                            )
+                            
                             confirm = st.checkbox("Conferma rimozione", key=f"confirm_{dealer['id']}")
                             if confirm:
-                                self.tracker.remove_dealer(dealer['id'])
-                                st.success("✅ Concessionario rimosso")
-                                st.rerun()
+                                hard_delete = delete_type.startswith("Hard")
+                                self.tracker.remove_dealer(dealer['id'], hard_delete=hard_delete)
+                                
+                                if hard_delete:
+                                    st.success("✅ Concessionario e tutti i dati associati eliminati")
+                                else:
+                                    st.success("✅ Concessionario nascosto")
+                                    st.rerun()
 
     def _handle_notifications(self):
         """Gestisce le notifiche pendenti"""
