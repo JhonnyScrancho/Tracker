@@ -102,11 +102,19 @@ class AnalyticsService:
             }
         
         # Statistiche inventario
-        now = pd.Timestamp.now(tz='UTC')  # Esplicito timezone UTC
+        now = pd.Timestamp.now(tz='UTC')
+        
+        def safe_convert_to_utc(series):
+            """Converte una serie di datetime a UTC in modo sicuro"""
+            dt_series = pd.to_datetime(series)
+            if dt_series.dt.tz is None:
+                return dt_series.dt.tz_localize('UTC')
+            return dt_series.dt.tz_convert('UTC')
+        
         stats['inventory_stats'] = {
             'total_listings': len(df),
             'avg_age': (
-                (now - pd.to_datetime(df['first_seen']).dt.tz_localize('UTC')).mean().days
+                (now - safe_convert_to_utc(df['first_seen'])).mean().days
                 if 'first_seen' in df.columns else None
             ),
             'plates_missing': len(df[df['plate'].isna()]) if 'plate' in df.columns else None
@@ -121,7 +129,7 @@ class AnalyticsService:
         
         # Statistiche temporali
         if 'first_seen' in df.columns:
-            df['week'] = pd.to_datetime(df['first_seen']).dt.tz_localize('UTC').dt.isocalendar().week
+            df['week'] = safe_convert_to_utc(df['first_seen']).dt.isocalendar().week
             weekly_counts = df.groupby('week').size()
             stats['temporal_stats'] = {
                 'weekly_avg': weekly_counts.mean(),
