@@ -1,5 +1,6 @@
 from typing import Dict, List, Optional
 from firebase_admin import credentials, initialize_app, firestore
+from google.cloud.firestore import Query
 from bs4 import BeautifulSoup
 import requests
 from datetime import datetime, timezone
@@ -730,8 +731,8 @@ class AutoTracker:
         """Marca come inattivi gli annunci non più presenti"""
         listings_ref = self.db.collection('listings')
         query = listings_ref\
-            .where(filter=FieldPath("dealer_id") == dealer_id)\
-            .where(filter=FieldPath("active") == True)
+            .where("dealer_id", "==", dealer_id)\
+            .where("active", "==", True)
         
         batch = self.db.batch()
         current_time = get_current_time()
@@ -859,7 +860,7 @@ class AutoTracker:
     def get_dealers(self):
         """Recupera tutti i concessionari attivi"""
         dealers = self.db.collection('dealers')\
-            .where(filter=FieldPath("active") == True)\
+            .where("active", "==", True)\
             .stream()
         return [dealer.to_dict() | {'id': dealer.id} for dealer in dealers]
 
@@ -922,8 +923,8 @@ class AutoTracker:
         try:
             listings_ref = self.db.collection('listings')
             query = listings_ref\
-                .where(filter=FieldPath("dealer_id") == dealer_id)\
-                .where(filter=FieldPath("active") == True)
+                .where("dealer_id", "==", dealer_id)\
+                .where("active", "==", True)
             
             docs = query.stream()
             listings = []
@@ -1003,7 +1004,7 @@ class AutoTracker:
         """Recupera lo storico completo di un dealer"""
         try:
             history = self.db.collection('history')\
-                .where(filter=FieldPath("dealer_id") == dealer_id)\
+                .where("dealer_id", "==", dealer_id)\
                 .order_by('date')\
                 .stream()
             
@@ -1022,7 +1023,7 @@ class AutoTracker:
                 
         except Exception as e:
             st.error(f"❌ Errore nel recupero dello storico: {str(e)}")
-            return []   
+            return []  
         
     def get_scheduler_config(self):
         """Recupera la configurazione dello scheduler"""
