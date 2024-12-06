@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 import pandas as pd
 import plotly.graph_objects as go
 from typing import List, Dict
@@ -25,6 +25,9 @@ def calculate_dealer_stats(listings: List[Dict]) -> Dict:
     discounts = []
     listing_days = []
     
+    # Usa datetime timezone-aware
+    now = datetime.now(timezone.utc)
+    
     for listing in listings:
         # Calcolo prezzi
         price = listing.get('original_price')
@@ -41,11 +44,14 @@ def calculate_dealer_stats(listings: List[Dict]) -> Dict:
             stats['discounted_cars'] += 1
             discounts.append(listing['discount_percentage'])
             
-        # Calcolo giorni in lista - Aggiunta validazione
+        # Calcolo giorni in lista con gestione timezone
         first_seen = listing.get('first_seen')
-        if first_seen and isinstance(first_seen, datetime):
+        if first_seen:
             try:
-                days = (datetime.now() - first_seen).days
+                # Se first_seen è naive, rendilo aware
+                if first_seen.tzinfo is None:
+                    first_seen = first_seen.replace(tzinfo=timezone.utc)
+                days = (now - first_seen).days
                 listing_days.append(days)
             except Exception as e:
                 st.warning(f"Errore nel calcolo giorni per listing {listing.get('id')}: {str(e)}")
