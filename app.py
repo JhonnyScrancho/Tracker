@@ -451,14 +451,6 @@ class AutoTrackerApp:
         """Mostra la pagina impostazioni"""
         st.title("⚙️ Impostazioni")
         
-        # Inizializza stati nella sessione se non esistono
-        if 'show_delete_options' not in st.session_state:
-            st.session_state.show_delete_options = {}
-        if 'delete_confirmed' not in st.session_state:
-            st.session_state.delete_confirmed = {}
-        if 'delete_type' not in st.session_state:
-            st.session_state.delete_type = {}
-        
         # Form aggiunta dealer
         st.header("➕ Aggiungi Concessionario")
         with st.form("add_dealer"):
@@ -541,57 +533,50 @@ class AutoTrackerApp:
                     if dealer.get('last_update'):
                         st.caption(f"Ultimo aggiornamento: {dealer['last_update'].strftime('%d/%m/%Y %H:%M')}")
                     
-                    # Switch NO Targa
+                    # Switch NO Targa con key unica
+                    no_targa_key = f"no_targa_{dealer['id']}"
                     no_targa = st.checkbox(
                         "NO Targa",
                         value=dealer.get('no_targa', False),
-                        key=f"no_targa_{dealer['id']}"
+                        key=no_targa_key
                     )
                     
                     # Se il valore cambia, aggiorna il dealer
                     if no_targa != dealer.get('no_targa', False):
                         self.tracker.update_dealer_settings(dealer['id'], {'no_targa': no_targa})
                         st.success("✅ Impostazioni aggiornate")
-                        
-                    col1, col2 = st.columns([3,1])
-                    with col2:
-                        # Mostra pulsante rimozione solo se non stiamo già mostrando le opzioni
-                        if not st.session_state.show_delete_options.get(dealer['id'], False):
-                            if st.button("❌ Rimuovi", key=f"remove_{dealer['id']}", use_container_width=True):
-                                st.session_state.show_delete_options[dealer['id']] = True
-                                st.session_state.delete_confirmed[dealer['id']] = False
-                                st.rerun()
-                        
-                        # Mostra opzioni di eliminazione se il pulsante è stato premuto
-                        if st.session_state.show_delete_options.get(dealer['id'], False):
+                    
+                    # Gestione rimozione con form dedicato per ogni dealer
+                    with st.form(f"remove_form_{dealer['id']}"):
+                        col1, col2 = st.columns([3,1])
+                        with col2:
                             delete_type = st.radio(
-                                "Tipo di eliminazione",
-                                ["Soft Delete (nasconde)", "Hard Delete (elimina tutto)"],
+                                "Tipo eliminazione",
+                                ["Soft", "Hard"],
+                                horizontal=True,
                                 key=f"delete_type_{dealer['id']}"
                             )
-                            st.session_state.delete_type[dealer['id']] = delete_type
                             
-                            confirm = st.checkbox("Conferma rimozione", key=f"confirm_{dealer['id']}")
-                            st.session_state.delete_confirmed[dealer['id']] = confirm
+                            confirm = st.checkbox(
+                                "Conferma eliminazione", 
+                                key=f"confirm_{dealer['id']}"
+                            )
                             
-                            # Aggiungi pulsante di annullamento
-                            if st.button("Annulla", key=f"cancel_{dealer['id']}"):
-                                st.session_state.show_delete_options[dealer['id']] = False
-                                st.rerun()
+                            submit = st.form_submit_button(
+                                "❌ Rimuovi",
+                                use_container_width=True,
+                                type="primary"
+                            )
                             
-                            # Procedi con l'eliminazione se confermata
-                            if confirm:
-                                hard_delete = delete_type.startswith("Hard")
+                            if submit and confirm:
+                                hard_delete = (delete_type == "Hard")
                                 self.tracker.remove_dealer(dealer['id'], hard_delete=hard_delete)
-                                
-                                if hard_delete:
-                                    st.success("✅ Concessionario e tutti i dati associati eliminati")
-                                else:
-                                    st.success("✅ Concessionario nascosto")
-                                
-                                # Resetta lo stato e ricarica
-                                st.session_state.show_delete_options[dealer['id']] = False
+                                message = "✅ Concessionario e dati eliminati" if hard_delete else "✅ Concessionario nascosto"
+                                st.success(message)
+                                time.sleep(0.5)  # Breve pausa per mostrare il messaggio
                                 st.rerun()
+                            elif submit and not confirm:
+                                st.error("❌ Conferma l'eliminazione")
 
     def _handle_notifications(self):
         """Gestisce le notifiche pendenti"""
