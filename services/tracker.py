@@ -729,32 +729,31 @@ class AutoTracker:
     def mark_inactive_listings(self, dealer_id: str, active_ids: list):
         """Marca come inattivi gli annunci non più presenti"""
         listings_ref = self.db.collection('listings')
-        query = listings_ref.where('dealer_id', '==', dealer_id).where('active', '==', True)
+        query = listings_ref\
+            .where(filter=FieldPath("dealer_id") == dealer_id)\
+            .where(filter=FieldPath("active") == True)
         
         batch = self.db.batch()
-        current_time = get_current_time() # Usa UTC
+        current_time = get_current_time()
         
         for doc in query.stream():
             if doc.id not in active_ids:
                 doc_ref = listings_ref.document(doc.id)
-                listing_data = doc.to_dict()
                 
-                # Marca annuncio come inattivo usando UTC
+                # Marca annuncio come inattivo
                 batch.update(doc_ref, {
                     'active': False,
-                    'deactivation_date': current_time
+                    'removed_at': current_time
                 })
                 
-                # Registra rimozione nello storico usando UTC
+                # Registra rimozione nello storico
                 history_ref = self.db.collection('history').document()
-                history_data = {
+                batch.set(history_ref, {
                     'listing_id': doc.id,
                     'dealer_id': dealer_id,
                     'date': current_time,
-                    'event': 'removed',
-                    'listing_details': listing_data
-                }
-                batch.set(history_ref, history_data)
+                    'event': 'removed'
+                })
         
         batch.commit()
 
@@ -860,7 +859,7 @@ class AutoTracker:
     def get_dealers(self):
         """Recupera tutti i concessionari attivi"""
         dealers = self.db.collection('dealers')\
-            .where('active', '==', True)\
+            .where(filter=FieldPath("active") == True)\
             .stream()
         return [dealer.to_dict() | {'id': dealer.id} for dealer in dealers]
 
@@ -919,38 +918,23 @@ class AutoTracker:
             return None
 
     def get_active_listings(self, dealer_id: str):
-        """
-        Recupera gli annunci attivi di un concessionario
-        
-        Args:
-            dealer_id: ID del concessionario
-            
-        Returns:
-            Lista di annunci attivi
-        """
+        """Recupera gli annunci attivi di un concessionario"""
         try:
-            # Aggiungiamo log per debug
-            print(f"Recupero annunci per dealer {dealer_id}")
-            
-            # Query per gli annunci attivi del dealer specifico
             listings_ref = self.db.collection('listings')
-            query = listings_ref.where('dealer_id', '==', dealer_id).where('active', '==', True)
+            query = listings_ref\
+                .where(filter=FieldPath("dealer_id") == dealer_id)\
+                .where(filter=FieldPath("active") == True)
             
-            # Esegui la query e converti i risultati in lista di dizionari
-            listings = []
             docs = query.stream()
+            listings = []
             
             for doc in docs:
                 listing_data = doc.to_dict()
-                listing_data['id'] = doc.id  # Aggiungi l'ID del documento
+                listing_data['id'] = doc.id
                 listings.append(listing_data)
                 
-            print(f"Trovati {len(listings)} annunci attivi")
-            if listings:
-                print("Esempio struttura primo annuncio:", list(listings[0].keys()))
-                
             return listings
-            
+                
         except Exception as e:
             print(f"Errore nel recupero degli annunci: {str(e)}")
             return []
@@ -1016,25 +1000,16 @@ class AutoTracker:
             return False    
         
     def get_dealer_history(self, dealer_id: str):
-        """
-        Recupera lo storico completo di un dealer
-        
-        Args:
-            dealer_id: ID del concessionario
-            
-        Returns:
-            Lista di eventi storici ordinati per data
-        """
+        """Recupera lo storico completo di un dealer"""
         try:
             history = self.db.collection('history')\
-                .where('dealer_id', '==', dealer_id)\
+                .where(filter=FieldPath("dealer_id") == dealer_id)\
                 .order_by('date')\
                 .stream()
             
             history_data = []
             for event in history:
                 event_data = event.to_dict()
-                # Ensure all events have required fields
                 event_data['id'] = event.id
                 event_data['dealer_id'] = dealer_id
                 event_data['date'] = event_data.get('date', datetime.now())
@@ -1044,10 +1019,10 @@ class AutoTracker:
                 history_data.append(event_data)
                 
             return history_data
-            
+                
         except Exception as e:
             st.error(f"❌ Errore nel recupero dello storico: {str(e)}")
-            return []    
+            return []   
         
     def get_scheduler_config(self):
         """Recupera la configurazione dello scheduler"""
