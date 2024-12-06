@@ -16,7 +16,7 @@ from services.tracker import AutoTracker
 # Nuovi import
 from components.anomaly_dashboard import show_anomaly_dashboard
 from services.analytics_service import AnalyticsService
-from components.alerts import AlertSystem
+from services.alerts import AlertSystem
 from components.reports import generate_weekly_report, show_trend_analysis
 from components.vehicle_comparison import show_comparison_view
 
