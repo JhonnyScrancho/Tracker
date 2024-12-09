@@ -311,14 +311,8 @@ class AutoTrackerApp:
 
         # Controlla alert
         if dealers:
-            all_alerts = []
             for dealer in dealers:
-                alerts = check_alert_conditions(self.tracker, dealer['id'])
-                all_alerts.extend(alerts)
-            
-            # Mostra alert se presenti
-            if all_alerts:
-                show_alerts(all_alerts)
+                self.alert_system.check_alert_conditions(dealer['id'])
 
         # Main content
         if not dealers:
