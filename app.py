@@ -30,83 +30,151 @@ st.set_page_config(
 # CSS
 st.markdown("""
     <style>
-        .stExpander { width: 100% !important; }
-        .log-container {
-            background-color: #f8f9fa;
-            border: 1px solid #e9ecef;
-            border-radius: 0.25rem;
-            padding: 1rem;
-            margin: 1rem 0;
-            max-height: 400px;
-            overflow-y: auto;
-            width: 100% !important;
-        }
-        .element-container { width: 100% !important; }
-        .stMarkdown { width: 100% !important; }
-        
-        .dataframe {
-            width: 100%;
-            margin: 0.5em 0;
-            border-collapse: collapse;
-            font-size: 14px;
-        }
-        .dataframe th {
-            background-color: var(--background-color);
-            padding: 2px;
-            font-weight: 600;
-            text-align: left;
-            border-bottom: 2px solid #dee2e6;
-            white-space: nowrap;
-        }
-        .dataframe td {
-            padding: 8px;
-            vertical-align: middle;
-            border-bottom: 1px solid #eee;
-        }
-        
-        .col-foto { width: auto !important; padding: 5px !important; }
-        .col-id { width: auto !important; }
-        .col-targa { width: auto !important; text-align: center !important; }
-        .col-modello { min-width: auto !important; }
-        .col-prezzo { width: auto !important; text-align: right !important; }
-        .col-km { width: auto !important; text-align: right !important; }
-        .col-data { width: auto !important; text-align: center !important; }
-        .col-carburante { width: auto !important; }
-        .col-link { width: auto !important; text-align: center !important; }
-        
-        .table-img {
-            max-width: 200px !important;
-            height: auto;
-            object-fit: cover;
-            border-radius: 4px;
-        }
-        .listing-id {
-            font-family: monospace;
-            border-radius: 4px;
-            font-size: 0.8em;
-        }
+    /* Container base */
+    .stExpander { width: 100% !important; }
+    .element-container { width: 100% !important; }
+    .stMarkdown { width: 100% !important; }
 
-        /* Stili per la sidebar */
-        .dealer-button {
-            margin-bottom: 0.5rem;
-            width: 100%;
-        }
-        
-        /* Stili per notifications */
-        .notification {
-            padding: 1rem;
-            margin-bottom: 1rem;
-            border-radius: 0.5rem;
-        }
-        .notification.success {
-            background-color: #d1fae5;
-            border: 1px solid #34d399;
-        }
-        .notification.error {
-            background-color: #fee2e2;
-            border: 1px solid #f87171;
-        }
-    </style>
+    /* Log Container con altezza fissa */
+    .log-container {
+        background-color: #f8f9fa;
+        border: 1px solid #e9ecef;
+        border-radius: 0.25rem;
+        padding: 1rem;
+        margin: 1rem 0;
+        height: 500px;
+        overflow-y: auto;
+        overflow-x: hidden;
+        width: 100% !important;
+        font-family: monospace;
+        font-size: 0.875rem;
+        line-height: 1.4;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+    }
+
+    /* Log entries */
+    .log-entry {
+        margin: 0.2rem 0;
+        padding: 0.2rem 0;
+        border-bottom: 1px solid #eee;
+    }
+    .log-info { color: #0d6efd; }
+    .log-success { color: #28a745; }
+    .log-warning { color: #ffc107; }
+    .log-error { color: #dc3545; }
+
+    /* DataFrames e Tabelle */
+    .dataframe {
+        width: 100%;
+        margin: 0.5em 0;
+        border-collapse: collapse;
+        font-size: 14px;
+    }
+    .dataframe th {
+        background-color: var(--background-color);
+        padding: 8px;
+        font-weight: 600;
+        text-align: left;
+        border-bottom: 2px solid #dee2e6;
+        white-space: nowrap;
+    }
+    .dataframe td {
+        padding: 8px;
+        vertical-align: middle;
+        border-bottom: 1px solid #eee;
+    }
+
+    /* Colonne specifiche */
+    .col-foto { width: auto !important; padding: 5px !important; }
+    .col-id { width: auto !important; }
+    .col-targa { width: auto !important; text-align: center !important; }
+    .col-modello { min-width: auto !important; }
+    .col-prezzo { width: auto !important; text-align: right !important; }
+    .col-km { width: auto !important; text-align: right !important; }
+    .col-data { width: auto !important; text-align: center !important; }
+    .col-carburante { width: auto !important; }
+    .col-link { width: auto !important; text-align: center !important; }
+
+    /* Immagini e ID */
+    .table-img {
+        max-width: 200px !important;
+        height: auto;
+        object-fit: cover;
+        border-radius: 4px;
+    }
+    .listing-id {
+        font-family: monospace;
+        border-radius: 4px;
+        font-size: 0.8em;
+    }
+
+    /* Sidebar e Navigation */
+    .dealer-button {
+        margin-bottom: 0.5rem;
+        width: 100%;
+    }
+
+    /* Notifications */
+    .notification {
+        padding: 1rem;
+        margin-bottom: 1rem;
+        border-radius: 0.5rem;
+    }
+    .notification.success {
+        background-color: #d1fae5;
+        border: 1px solid #34d399;
+    }
+    .notification.error {
+        background-color: #fee2e2;
+        border: 1px solid #f87171;
+    }
+
+    /* Anomalie e Variazioni */
+    .price-anomaly { 
+        color: #dc3545 !important; 
+        font-weight: bold; 
+    }
+    .mileage-anomaly { 
+        color: #dc3545 !important; 
+        font-weight: bold; 
+    }
+    .plate-edited { 
+        background-color: #fff3cd; 
+    }
+    .reappeared { 
+        background-color: #cfe2ff; 
+    }
+    .discount { 
+        color: #198754 !important; 
+    }
+
+    /* Visualizzazione delle variazioni */
+    .variation-positive {
+        color: #198754;
+        font-weight: bold;
+    }
+    .variation-negative {
+        color: #dc3545;
+        font-weight: bold;
+    }
+
+    /* Stili di base per metriche */
+    .metric-container {
+        padding: 1rem;
+        margin: 0.5rem 0;
+        border-radius: 0.5rem;
+        background-color: #f8f9fa;
+    }
+
+    /* Stili tabella annunci rimossi */
+    .removed-listing {
+        background-color: #fff3cd;
+        padding: 0.5rem;
+        margin: 0.5rem 0;
+        border-radius: 0.25rem;
+    }
+</style>
 """, unsafe_allow_html=True)
 
 class AutoTrackerApp:
