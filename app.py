@@ -18,9 +18,9 @@ from services.tracker import AutoTracker
 # Nuovi import
 from components.anomaly_dashboard import show_anomaly_dashboard, show_listing_details
 from services.analytics_service import AnalyticsService
-from services.alerts import AlertSystem
 from components.reports import generate_weekly_report, show_trend_analysis
 from components.vehicle_comparison import show_comparison_view
+from services.alerts import AlertSystem
 
 st.set_page_config(
     page_title="Auto Tracker",
