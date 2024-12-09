@@ -16,7 +16,7 @@ from components.sidebar import show_sidebar
 from services.tracker import AutoTracker
 
 # Nuovi import
-from components.anomaly_dashboard import show_anomaly_dashboard, show_listing_details
+from components.anomaly_dashboard import show_anomaly_dashboard
 from services.analytics_service import AnalyticsService
 from components.reports import generate_weekly_report, show_trend_analysis
 from components.vehicle_comparison import show_comparison_view
@@ -424,7 +424,10 @@ class AutoTrackerApp:
     
     
     def show_listing_details(self, listing_id: str):
-        """Mostra la pagina di dettaglio completa di un annuncio"""
+        """
+        Visualizza il dettaglio completo di un annuncio.
+        Questa è l'unica funzione che dovrebbe gestire la visualizzazione dettagliata
+        """
         listing = self.tracker.get_listing_by_id(listing_id)
         if not listing:
             st.error("❌ Annuncio non trovato")
@@ -432,28 +435,25 @@ class AutoTrackerApp:
 
         # Bottone per tornare alla lista
         if st.button("← Torna alla lista"):
-            del st.session_state['selected_listing']
+            st.session_state.pop('selected_listing', None)
             st.experimental_rerun()
 
-        st.title(listing.get('title', 'N/D'))
+        # Header e info principali
+        st.title(listing['title'])
 
-        # Overview rapida
-        cols = st.columns(4)
-        with cols[0]:
+        # Metriche principali
+        col1, col2, col3 = st.columns(3)
+        with col1:
             st.metric("💰 Prezzo", f"€{listing.get('original_price', 0):,.0f}")
             if listing.get('discounted_price'):
                 st.metric("🏷️ Prezzo Scontato", f"€{listing['discounted_price']:,.0f}")
-        with cols[1]:
+        with col2:
             st.metric("🚗 Targa", listing.get('plate', 'N/D'))
-        with cols[2]:
+        with col3:
             if listing.get('mileage'):
                 st.metric("📏 Chilometri", f"{listing['mileage']:,}".replace(",", "."))
-        with cols[3]:
-            if listing.get('first_seen'):
-                days_online = (datetime.now() - pd.to_datetime(listing['first_seen'])).days
-                st.metric("⏱️ Giorni Online", days_online)
 
-        # Tabs per organizzare le informazioni
+        # Tabs per contenuto dettagliato
         tab1, tab2, tab3, tab4 = st.tabs([
             "📸 Galleria",
             "📈 Andamento Prezzi",
@@ -683,8 +683,8 @@ class AutoTrackerApp:
         if st.session_state.get('selected_listing'):
             self.show_listing_details(st.session_state['selected_listing'])    
     
-    def show_dealer_view(self, dealer_id):
-        """Mostra la vista del dealer con nuovo layout a tab"""
+    def show_dealer_view(self, dealer_id: str):
+        """Mostra la vista principale del dealer con layout corretto"""
         # Recupera dealer
         dealers = self.tracker.get_dealers()
         dealer = next((d for d in dealers if d['id'] == dealer_id), None)
@@ -692,12 +692,12 @@ class AutoTrackerApp:
         if not dealer:
             st.error("❌ Concessionario non trovato")
             return
-            
-        # Header
+                
+        # Header con titolo dealer 
         st.title(f"🏢 {format_dealer_name(dealer['url'])}")
         st.caption(dealer['url'])
         
-        # Tabs principale
+        # Sub-tabs per il dashboard
         tab1, tab2, tab3, tab4 = st.tabs([
             "📊 Dashboard",
             "🔍 Dettaglio Annunci",
@@ -706,7 +706,7 @@ class AutoTrackerApp:
         ])
         
         with tab1:
-            # Overview principale
+            # Info ultimo aggiornamento
             if dealer.get('last_update'):
                 st.info(f"📅 Ultimo aggiornamento: {dealer['last_update'].strftime('%d/%m/%Y %H:%M')}")
                 
@@ -727,39 +727,116 @@ class AutoTrackerApp:
                     except Exception as e:
                         self.add_log(f"❌ Errore: {str(e)}", "error")
                         status.update(label=f"❌ Errore: {str(e)}", state="error")
-
+            
             # Statistiche dealer
             stats.show_dealer_overview(self.tracker, dealer_id)
             
+            # Log operazioni (chiuso di default)
+            self.show_logs()
+                
         with tab2:
             # Lista annunci con possibilità di selezionare dettaglio
             listings = self.tracker.get_active_listings(dealer_id)
-            if listings:
-                # Selezione annuncio
-                selected_listing = st.selectbox(
-                    "Seleziona Annuncio",
-                    options=[l['id'] for l in listings],
-                    format_func=lambda x: next((l['title'] for l in listings if l['id'] == x), x)
-                )
+            if not listings:
+                st.info("Nessun annuncio disponibile")
+                return
                 
-                if selected_listing:
-                    # Mostra dettaglio annuncio
-                    show_listing_details(self.tracker, selected_listing)
-                
-                # Tabella generale
-                st.subheader("📋 Tutti gli Annunci")
-                tables.show_listings_table(listings)
+            # Filtri
+            with st.expander("🔍 Filtri", expanded=False):
+                col1, col2 = st.columns(2)
+                with col1:
+                    min_price = st.number_input(
+                        "Prezzo Minimo",
+                        min_value=0,
+                        step=1000,
+                        value=0
+                    )
+                with col2:
+                    max_price = st.number_input(
+                        "Prezzo Massimo", 
+                        min_value=0,
+                        step=1000,
+                        value=0
+                    )
+                    
+            # Prepara DataFrame
+            df = pd.DataFrame(listings)
+            
+            # Applica filtri
+            if min_price > 0:
+                df = df[df['original_price'] >= min_price]
+            if max_price > 0:
+                df = df[df['original_price'] <= max_price]
+
+            # Tabella interattiva
+            st.write("### 📋 Lista Annunci")
+            
+            for _, row in df.iterrows():
+                with st.container():
+                    col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
+                    
+                    with col1:
+                        if row.get('image_urls'):
+                            st.image(row['image_urls'][0], width=100)
+                        st.write(row.get('title', 'N/D'))
+                    
+                    with col2:
+                        st.metric(
+                            "Prezzo",
+                            f"€{row.get('original_price', 0):,.0f}"
+                        )
+                        if row.get('discounted_price'):
+                            st.caption(f"Scontato: €{row['discounted_price']:,.0f}")
+                    
+                    with col3:
+                        st.write(f"🚗 Targa: {row.get('plate', 'N/D')}")
+                        if row.get('mileage'):
+                            st.write(f"📏 KM: {row['mileage']:,}".replace(",", "."))
+                        if row.get('first_seen'):
+                            days = (datetime.now() - pd.to_datetime(row['first_seen'])).days
+                            st.write(f"⏱️ Online da: {days} giorni")
+                    
+                    with col4:
+                        if st.button("🔍", key=f"view_{row['id']}"):
+                            st.session_state['selected_listing'] = row['id']
+                            st.rerun()
+                    
+                    st.divider()
+            
+            # Se un annuncio è selezionato, mostra il dettaglio
+            if st.session_state.get('selected_listing'):
+                self.show_listing_detail(st.session_state['selected_listing'])
                 
         with tab3:
             # Vista duplicati
+            st.write("### 🔄 Annunci Duplicati")
             self.show_duplicates_view(dealer_id)
             
         with tab4:
-            # Analisi trend
-            stats.show_dealer_insights(self.tracker, dealer_id)
+            # Analisi statistiche e trend
+            st.write("### 📊 Analisi Trend")
+            insights = self.analytics.get_market_insights(dealer_id)
             
-        # Log operazioni
-        self.show_logs()
+            # Metriche principali
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric(
+                    "Tasso Riapparizione",
+                    f"{insights['patterns'].get('reappearance_rate', 0):.1f}%"
+                )
+            with col2:
+                st.metric(
+                    "Variazioni Prezzo/Giorno",
+                    f"{insights['patterns'].get('avg_price_changes', 0):.1f}"
+                )
+            with col3:
+                st.metric(
+                    "Durata Media Annunci",
+                    f"{insights['patterns'].get('listing_duration', 0):.0f} giorni"
+                )
+                
+            # Trend prezzi e altri grafici
+            stats.show_dealer_insights(self.tracker, dealer_id)
 
     def show_duplicates_view(self, dealer_id: str):
         """Mostra vista dedicata ai duplicati"""
