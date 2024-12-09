@@ -255,10 +255,12 @@ def show_suspicious_patterns(df_history: pd.DataFrame, df_listings: pd.DataFrame
 
 def show_temporal_analysis(df_history: pd.DataFrame, df_listings: pd.DataFrame):
     """Mostra analisi temporale delle attività con tutti i dettagli"""
+    from utils.datetime_utils import get_current_time, normalize_df_dates, normalize_datetime
+    
     st.write("### 📈 Trend Attività")
     
-    # Prepara dati per grafico
-    df_history['date'] = pd.to_datetime(df_history['date'])
+    # Normalizza DataFrame usando l'utility esistente
+    df_history = normalize_df_dates(df_history)
     df_history['date_str'] = df_history['date'].dt.strftime('%d/%m/%Y')
     df_grouped = df_history.groupby(['date_str', 'event']).size().reset_index(name='count')
     
@@ -331,22 +333,28 @@ def show_temporal_analysis(df_history: pd.DataFrame, df_listings: pd.DataFrame):
     with col1:
         # Permanenza media annunci
         active_days = []
-        now = pd.Timestamp.now()
-        for _, listing in df_listings.iterrows():
-            if listing.get('first_seen'):
-                days = (now - pd.to_datetime(listing['first_seen'])).days
-                if days >= 0:
-                    active_days.append(days)
-        if active_days:
-            avg_days = sum(active_days) / len(active_days)
-            st.metric("Permanenza Media", f"{avg_days:.1f} giorni")
+        now = get_current_time()  # Usa l'utility per il timestamp corrente
+        
+        if 'first_seen' in df_listings.columns:
+            for _, listing in df_listings.iterrows():
+                if pd.notna(listing.get('first_seen')):
+                    # Usa l'utility per normalizzare la data
+                    first_seen = normalize_datetime(listing['first_seen'])
+                    if first_seen is not None:
+                        days = (now - first_seen).days
+                        if days >= 0:
+                            active_days.append(days)
+                        
+            if active_days:
+                avg_days = sum(active_days) / len(active_days)
+                st.metric("Permanenza Media", f"{avg_days:.1f} giorni")
             
     with col2:
         # Tasso di rimozione
         if not df_history.empty:
-            days = (df_history['date'].max() - df_history['date'].min()).days or 1
+            date_range = (df_history['date'].max() - df_history['date'].min()).days or 1
             removed_count = len(df_history[df_history['event'] == 'removed'])
-            removal_rate = removed_count / days * 7
+            removal_rate = removed_count / date_range * 7
             st.metric("Rimozioni/Settimana", f"{removal_rate:.1f}")
             
     with col3:
@@ -360,7 +368,7 @@ def show_temporal_analysis(df_history: pd.DataFrame, df_listings: pd.DataFrame):
         # Variazioni prezzo medie
         price_changes = df_history[df_history['event'] == 'price_changed']
         if not price_changes.empty:
-            avg_changes = len(price_changes) / days
+            avg_changes = len(price_changes) / date_range
             st.metric("Cambi Prezzo/Giorno", f"{avg_changes:.1f}")
     
     # Segmentazione temporale
