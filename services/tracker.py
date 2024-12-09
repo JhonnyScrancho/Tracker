@@ -434,6 +434,45 @@ class AutoTracker:
                 
         return details
 
+    def get_previous_stats(self, dealer_id: str) -> Dict:
+        """
+        Recupera le statistiche precedenti di un dealer dal database
+        
+        Args:
+            dealer_id: ID del concessionario
+            
+        Returns:
+            Dizionario con le statistiche precedenti o None se non disponibili
+        """
+        try:
+            # Recupera l'ultimo record di statistiche
+            stats_ref = self.db.collection('dealer_stats')\
+                .where('dealer_id', '==', dealer_id)\
+                .order_by('calculated_at', direction=firestore.Query.DESCENDING)\
+                .limit(1)\
+                .stream()
+            
+            stats_list = list(stats_ref)
+            if stats_list:
+                return stats_list[0].to_dict()
+                
+            # Se non esistono statistiche precedenti, ritorna un dizionario vuoto
+            return {
+                'total_cars': 0,
+                'total_value': 0,
+                'avg_price': 0,
+                'missing_plates': 0
+            }
+                
+        except Exception as e:
+            st.error(f"❌ Errore nel recupero statistiche precedenti: {str(e)}")
+            return {
+                'total_cars': 0,
+                'total_value': 0,
+                'avg_price': 0,
+                'missing_plates': 0
+            }
+    
     def _should_reanalyze_listing(self, last_analysis, plate_confidence, current_price, cached_price) -> bool:
         """Determina se un annuncio necessita di rianalisi"""
         if not last_analysis:
