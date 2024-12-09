@@ -423,74 +423,161 @@ class AutoTrackerApp:
                         st.progress(pattern['confidence'])
     
     
-    def show_listing_detail(self, listing_id: str):
-        """Mostra dettaglio completo di un annuncio"""
+    def show_listing_details(self, listing_id: str):
+        """Mostra la pagina di dettaglio completa di un annuncio"""
         listing = self.tracker.get_listing_by_id(listing_id)
         if not listing:
             st.error("❌ Annuncio non trovato")
             return
 
-        st.subheader(listing.get('title', 'N/D'))
+        # Bottone per tornare alla lista
+        if st.button("← Torna alla lista"):
+            del st.session_state['selected_listing']
+            st.experimental_rerun()
 
-        tabs = st.tabs([
-            "📊 Overview",
-            "📈 Storico Prezzi",
-            "🔄 Riapparizioni",
+        st.title(listing.get('title', 'N/D'))
+
+        # Overview rapida
+        cols = st.columns(4)
+        with cols[0]:
+            st.metric("💰 Prezzo", f"€{listing.get('original_price', 0):,.0f}")
+            if listing.get('discounted_price'):
+                st.metric("🏷️ Prezzo Scontato", f"€{listing['discounted_price']:,.0f}")
+        with cols[1]:
+            st.metric("🚗 Targa", listing.get('plate', 'N/D'))
+        with cols[2]:
+            if listing.get('mileage'):
+                st.metric("📏 Chilometri", f"{listing['mileage']:,}".replace(",", "."))
+        with cols[3]:
+            if listing.get('first_seen'):
+                days_online = (datetime.now() - pd.to_datetime(listing['first_seen'])).days
+                st.metric("⏱️ Giorni Online", days_online)
+
+        # Tabs per organizzare le informazioni
+        tab1, tab2, tab3, tab4 = st.tabs([
+            "📸 Galleria",
+            "📈 Andamento Prezzi",
+            "🔄 Storico",
             "👯 Annunci Simili"
         ])
 
-        with tabs[0]:
-            cols = st.columns(3)
-            with cols[0]:
-                st.metric("💰 Prezzo", f"€{listing.get('original_price', 0):,.0f}")
-            with cols[1]:
-                st.metric("🚗 Targa", listing.get('plate', 'N/D'))
-            with cols[2]:
-                st.metric("📏 Chilometraggio", 
-                         f"{listing.get('mileage', 0):,}".replace(",", "."))
-
+        with tab1:
             if listing.get('image_urls'):
-                st.image(listing['image_urls'][0], width=400)
+                st.subheader("Galleria Immagini")
+                image_cols = st.columns(3)
+                for idx, img_url in enumerate(listing['image_urls']):
+                    with image_cols[idx % 3]:
+                        st.image(img_url, use_column_width=True)
 
-        with tabs[1]:
+        with tab2:
+            st.subheader("Andamento Prezzi")
             history = self.tracker.get_listing_history(listing_id)
             if history:
-                fig = stats.create_price_history_chart(history)
+                # Crea DataFrame per l'analisi
+                df_history = pd.DataFrame(history)
+                df_history['date'] = pd.to_datetime(df_history['date'])
+                df_history = df_history.sort_values('date')
+
+                # Grafico prezzi
+                fig = go.Figure()
+                
+                # Linea prezzo originale
+                fig.add_trace(go.Scatter(
+                    x=df_history['date'],
+                    y=df_history['price'],
+                    name='Prezzo',
+                    line=dict(color='blue'),
+                    mode='lines+markers'
+                ))
+
+                # Se ci sono prezzi scontati, aggiungili
+                if 'discounted_price' in df_history.columns:
+                    mask = df_history['discounted_price'].notna()
+                    if mask.any():
+                        fig.add_trace(go.Scatter(
+                            x=df_history[mask]['date'],
+                            y=df_history[mask]['discounted_price'],
+                            name='Prezzo Scontato',
+                            line=dict(color='green'),
+                            mode='lines+markers'
+                        ))
+
+                fig.update_layout(
+                    title='Storico Prezzi',
+                    xaxis_title='Data',
+                    yaxis_title='Prezzo (€)',
+                    height=400
+                )
                 st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("Nessuno storico prezzi disponibile")
 
-        with tabs[2]:
-            reappearances = self.tracker.get_listing_reappearances(listing_id)
-            if reappearances:
-                for reapp in reappearances:
-                    st.write(f"🔄 Rimosso il {reapp['removed_date'].strftime('%d/%m/%Y')}")
-                    st.write(f"↩️ Riapparso il {reapp['reappeared_date'].strftime('%d/%m/%Y')}")
-                    st.write(f"⏱️ Giorni offline: {reapp['days_offline']}")
-                    st.divider()
-            else:
-                st.info("Nessuna riapparizione rilevata")
+                # Statistiche variazioni
+                st.subheader("Analisi Variazioni")
+                
+                price_changes = df_history[df_history['event'] == 'price_changed']
+                if not price_changes.empty:
+                    total_variations = len(price_changes)
+                    avg_variation = price_changes['price'].pct_change().mean() * 100
+                    max_decrease = price_changes['price'].pct_change().min() * 100
+                    max_increase = price_changes['price'].pct_change().max() * 100
+                    
+                    stat_cols = st.columns(4)
+                    with stat_cols[0]:
+                        st.metric("Variazioni Totali", total_variations)
+                    with stat_cols[1]:
+                        st.metric("Variazione Media", f"{avg_variation:.1f}%")
+                    with stat_cols[2]:
+                        st.metric("Max Diminuzione", f"{max_decrease:.1f}%")
+                    with stat_cols[3]:
+                        st.metric("Max Aumento", f"{max_increase:.1f}%")
 
-        with tabs[3]:
-            similar = self.tracker.find_similar_listings(listing)
-            if similar:
-                for sim in similar:
-                    with st.expander(f"{sim['title']} - {sim['similarity_score']:.0%} match"):
-                        cols = st.columns(2)
+        with tab3:
+            st.subheader("Storico Eventi")
+            if history:
+                for event in history:
+                    with st.expander(f"{event['date'].strftime('%d/%m/%Y %H:%M')} - {event['event'].title()}"):
+                        if event['event'] == 'price_changed':
+                            st.write(f"💰 Nuovo prezzo: €{event['price']:,.0f}")
+                            if event.get('discounted_price'):
+                                st.write(f"🏷️ Prezzo scontato: €{event['discounted_price']:,.0f}")
+                        elif event['event'] == 'removed':
+                            st.write("❌ Annuncio rimosso")
+                        elif event['event'] == 'reappeared':
+                            st.write("↩️ Annuncio riapparso")
+                            st.write(f"💰 Prezzo al rientro: €{event['price']:,.0f}")
+
+        with tab4:
+            st.subheader("Annunci Simili")
+            similar_listings = self.tracker.find_similar_listings(listing_id)
+            if similar_listings:
+                for similar in similar_listings:
+                    with st.expander(f"🎯 Match {similar['similarity_score']:.0%} - {similar['title']}"):
+                        cols = st.columns([1, 2])
                         with cols[0]:
-                            st.write("🚗 Targa:", sim.get('plate', 'N/D'))
-                            st.write("💰 Prezzo:", f"€{sim.get('original_price', 0):,.0f}")
-                            if sim.get('image_urls'):
-                                st.image(sim['image_urls'][0], width=200)
+                            if similar.get('image_urls'):
+                                st.image(similar['image_urls'][0], use_column_width=True)
                         with cols[1]:
-                            st.write("Caratteristiche corrispondenti:")
-                            for feature, matches in sim['matching_features'].items():
-                                st.write(f"{'✅' if matches else '❌'} {feature}")
+                            st.write(f"🚗 Targa: {similar.get('plate', 'N/D')}")
+                            st.write(f"💰 Prezzo: €{similar.get('original_price', 0):,.0f}")
+                            st.write(f"📏 KM: {similar.get('mileage', 'N/D'):,}".replace(",", "."))
+                            
+                            # Mostra caratteristiche corrispondenti
+                            st.write("✅ Caratteristiche Corrispondenti:")
+                            for feature, match in similar.get('matching_features', {}).items():
+                                st.write(f"{'✓' if match else '✗'} {feature}")
             else:
                 st.info("Nessun annuncio simile trovato")
+
+        # Sezione commenti/note (opzionale)
+        st.divider()
+        with st.expander("📝 Note e Commenti"):
+            notes = listing.get('notes', '')
+            new_note = st.text_area("Aggiungi nota", value=notes)
+            if new_note != notes:
+                self.tracker.update_listing_notes(listing_id, new_note)
+                st.success("✅ Note aggiornate")
     
     def show_home(self):
-        """Mostra la home page con lista annunci centralizzata"""
+        """Mostra la dashboard principale con lista annunci centralizzata"""
         st.title("🏠 Dashboard")
         
         dealers = self.tracker.get_dealers()
@@ -516,10 +603,12 @@ class AutoTrackerApp:
         with cols[2]:
             st.metric("💰 Valore Totale", f"€{total_value:,.0f}".replace(",", "."))
 
-        # Lista completa annunci
-        st.subheader("📋 Tutti gli Annunci")
+        st.divider()
+
+        # Lista principale di tutti gli annunci
+        st.header("📋 Tutti gli Annunci")
         
-        # Recupera tutti gli annunci attivi
+        # Recupera e unifica tutti gli annunci attivi
         all_listings = []
         for dealer in dealers:
             dealer_listings = self.tracker.get_active_listings(dealer['id'])
@@ -527,8 +616,11 @@ class AutoTrackerApp:
                 listing['dealer_name'] = dealer.get('url', '').split('/')[-1].upper()
             all_listings.extend(dealer_listings)
 
-        if all_listings:
-            # Filtri
+        # Converti in DataFrame per gestione più efficiente
+        df = pd.DataFrame(all_listings)
+        
+        # Filtri in una expander per non occupare troppo spazio
+        with st.expander("🔍 Filtri", expanded=False):
             col1, col2, col3 = st.columns(3)
             with col1:
                 min_price = st.number_input("Prezzo Minimo", min_value=0, step=1000)
@@ -537,36 +629,59 @@ class AutoTrackerApp:
             with col3:
                 dealer_filter = st.multiselect(
                     "Concessionario",
-                    options=list(set(l['dealer_name'] for l in all_listings))
+                    options=sorted(df['dealer_name'].unique())
                 )
 
-            # Applica filtri
-            filtered_listings = [
-                l for l in all_listings
-                if (not min_price or l.get('original_price', 0) >= min_price) and
-                   (not max_price or l.get('original_price', 0) <= max_price) and
-                   (not dealer_filter or l['dealer_name'] in dealer_filter)
-            ]
+        # Applica filtri
+        if min_price:
+            df = df[df['original_price'] >= min_price]
+        if max_price:
+            df = df[df['original_price'] <= max_price]
+        if dealer_filter:
+            df = df[df['dealer_name'].isin(dealer_filter)]
 
-            # Gestione click su annuncio
-            for listing in filtered_listings:
+        # Mostra tabella con annunci
+        if not df.empty:
+            for _, row in df.iterrows():
                 with st.container():
-                    cols = st.columns([3, 2, 2, 1])
-                    with cols[0]:
-                        st.write(listing.get('title', 'N/D'))
-                    with cols[1]:
-                        st.write(f"€{listing.get('original_price', 0):,.0f}")
-                    with cols[2]:
-                        st.write(listing['dealer_name'])
-                    with cols[3]:
-                        if st.button("🔍", key=f"view_{listing['id']}"):
-                            st.session_state.app_state['selected_listing_id'] = listing['id']
-                            st.rerun()
+                    col1, col2, col3, col4, col5 = st.columns([3, 2, 2, 2, 1])
+                    
+                    with col1:
+                        if row.get('image_urls'):
+                            st.image(row['image_urls'][0], width=100)
+                        st.write(row.get('title', 'N/D'))
+                    
+                    with col2:
+                        st.write("💰 Prezzo")
+                        st.write(f"€{row.get('original_price', 0):,.0f}")
+                        if row.get('discounted_price'):
+                            st.write(f"🏷️ Scontato: €{row['discounted_price']:,.0f}")
+                    
+                    with col3:
+                        st.write("🚘 Dettagli")
+                        st.write(f"Targa: {row.get('plate', 'N/D')}")
+                        if row.get('mileage'):
+                            st.write(f"KM: {row['mileage']:,}".replace(",", "."))
+                    
+                    with col4:
+                        st.write("📍 Dealer")
+                        st.write(row['dealer_name'])
+                        if row.get('first_seen'):
+                            days_online = (datetime.now() - pd.to_datetime(row['first_seen'])).days
+                            st.write(f"Online da: {days_online} giorni")
+                    
+                    with col5:
+                        st.write("Azioni")
+                        if st.button("🔍", key=f"view_{row['id']}", help="Vedi dettagli"):
+                            st.session_state['selected_listing'] = row['id']
+                            st.experimental_rerun()
                 st.divider()
+        else:
+            st.info("Nessun annuncio trovato con i filtri selezionati")
 
-            # Dettaglio annuncio se selezionato
-            if st.session_state.app_state['selected_listing_id']:
-                self.show_listing_detail(st.session_state.app_state['selected_listing_id'])    
+        # Se è stato selezionato un annuncio, mostra il dettaglio in una nuova pagina
+        if st.session_state.get('selected_listing'):
+            self.show_listing_details(st.session_state['selected_listing'])    
     
     def show_dealer_view(self, dealer_id):
         """Mostra la vista del dealer con nuovo layout a tab"""
