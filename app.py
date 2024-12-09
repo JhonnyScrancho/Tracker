@@ -23,7 +23,7 @@ from services.analytics_service import AnalyticsService
 from components.reports import generate_weekly_report, show_trend_analysis
 from components.vehicle_comparison import show_comparison_view
 from services.alerts import AlertSystem
-from utils.datetime_utils import get_current_time, calculate_date_diff
+from utils.datetime_utils import get_current_time, calculate_date_diff, normalize_datetime
 
 st.set_page_config(
     page_title="Auto Tracker",
@@ -728,7 +728,7 @@ class AutoTrackerApp:
                         st.write("Azioni")
                         if st.button("🔍", key=f"view_{row['id']}", help="Vedi dettagli"):
                             st.session_state['selected_listing'] = row['id']
-                            st.experimental_rerun()
+                            st.rerun()
                         
                     st.divider()
         else:
