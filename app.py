@@ -189,17 +189,29 @@ class AutoTrackerApp:
     def init_session_state(self):
         """Inizializza lo stato dell'applicazione"""
         if 'app_state' not in st.session_state:
-            st.session_state.app_state = {
-                'update_status': {},
-                'settings_status': {},
-                'notifications': [],
-                'selected_view': 'dashboard',
-                'log_history': [],
-                'max_logs': 1000 
-            }
+            st.session_state.app_state = {}
+
+        # Assicurati che tutte le chiavi necessarie esistano
+        default_state = {
+            'update_status': {},
+            'settings_status': {},
+            'notifications': [],
+            'selected_view': 'dashboard',
+            'log_history': [],
+            'max_logs': 1000
+        }
+
+        # Inizializza ogni chiave se non esiste
+        for key, default_value in default_state.items():
+            if key not in st.session_state.app_state:
+                st.session_state.app_state[key] = default_value
 
     def add_log(self, message: str, type: str = "info"):
         """Aggiunge un messaggio al log con mantenimento limite"""
+        # Assicurati che log_history esista
+        if 'log_history' not in st.session_state.app_state:
+            st.session_state.app_state['log_history'] = []
+            
         timestamp = datetime.now().strftime("%H:%M:%S")
         log_entry = {
             'timestamp': timestamp,
@@ -210,12 +222,17 @@ class AutoTrackerApp:
         st.session_state.app_state['log_history'].append(log_entry)
         
         # Mantiene limite log
-        if len(st.session_state.app_state['log_history']) > st.session_state.app_state['max_logs']:
+        max_logs = st.session_state.app_state.get('max_logs', 1000)
+        while len(st.session_state.app_state['log_history']) > max_logs:
             st.session_state.app_state['log_history'].pop(0)
 
     def show_logs(self):
         """Mostra i log in un container scrollabile"""
         with st.expander("📝 Log Operazioni", expanded=True):
+            # Verifica che log_history esista prima di usarlo
+            if 'log_history' not in st.session_state.app_state:
+                st.session_state.app_state['log_history'] = []
+
             log_html = """
                 <div class="log-container">
                     {}
