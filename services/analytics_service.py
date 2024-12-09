@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional
 import streamlit as st
 from utils.datetime_utils import get_current_time, calculate_date_diff, normalize_df_dates
@@ -156,6 +156,111 @@ class AnalyticsService:
         
         return insights
 
+    def detect_suspicious_patterns(self, dealer_id: str) -> List[Dict]:
+        """
+        Rileva pattern sospetti negli annunci di un dealer
+        
+        Args:
+            dealer_id: ID del concessionario
+            
+        Returns:
+            Lista di pattern sospetti rilevati
+        """
+        history = self.tracker.get_dealer_history(dealer_id)
+        listings = self.tracker.get_active_listings(dealer_id)
+        
+        if not history or not listings:
+            return []
+            
+        patterns = []
+        df_history = pd.DataFrame(history)
+        
+        # Pattern 1: Riapparizioni multiple
+        reappearances = df_history[df_history['event'] == 'reappeared']
+        if not reappearances.empty:
+            reapp_counts = reappearances.groupby('listing_id').size()
+            multiple_reapp = reapp_counts[reapp_counts > 1]
+            
+            for listing_id, count in multiple_reapp.items():
+                listing_data = df_history[df_history['listing_id'] == listing_id].sort_values('date')
+                first_seen = listing_data['date'].min()
+                last_seen = listing_data['date'].max()
+                
+                patterns.append({
+                    'type': 'multiple_reappearance',
+                    'listing_id': listing_id,
+                    'reappearance_count': count,
+                    'first_seen': first_seen,
+                    'last_seen': last_seen,
+                    'confidence': min(count / 5, 1.0),  # Confidenza basata sul numero di riapparizioni
+                    'details': self._get_listing_details(listing_id, listings)
+                })
+        
+        # Pattern 2: Variazioni prezzo anomale
+        price_changes = df_history[df_history['event'] == 'price_changed']
+        if not price_changes.empty:
+            for listing_id in price_changes['listing_id'].unique():
+                listing_changes = price_changes[price_changes['listing_id'] == listing_id]
+                if len(listing_changes) >= 3:  # Minimo 3 cambi prezzo
+                    prices = listing_changes['price']
+                    total_variation = (prices.max() - prices.min()) / prices.min() * 100
+                    
+                    if total_variation > 20:  # Variazione totale > 20%
+                        patterns.append({
+                            'type': 'price_volatility',
+                            'listing_id': listing_id,
+                            'total_variation': total_variation,
+                            'change_count': len(listing_changes),
+                            'confidence': min(total_variation / 50, 1.0),  # Confidenza basata sull'entità della variazione
+                            'details': self._get_listing_details(listing_id, listings)
+                        })
+        
+        # Pattern 3: Durata anomala
+        now = datetime.now(timezone.utc)
+        for listing in listings:
+            if listing.get('first_seen'):
+                duration = (now - pd.to_datetime(listing['first_seen'])).days
+                if duration > 90:  # Annunci attivi da più di 90 giorni
+                    patterns.append({
+                        'type': 'extended_duration',
+                        'listing_id': listing['id'],
+                        'duration_days': duration,
+                        'confidence': min(duration / 180, 1.0),  # Confidenza basata sulla durata
+                        'details': self._get_listing_details(listing['id'], listings)
+                    })
+        
+        # Pattern 4: Modifiche frequenti in breve tempo
+        for listing_id in df_history['listing_id'].unique():
+            listing_events = df_history[df_history['listing_id'] == listing_id].sort_values('date')
+            if len(listing_events) >= 5:  # Minimo 5 eventi
+                time_diffs = listing_events['date'].diff()
+                rapid_changes = time_diffs <= pd.Timedelta(hours=24)
+                
+                if rapid_changes.sum() >= 3:  # Almeno 3 modifiche rapide
+                    patterns.append({
+                        'type': 'frequent_changes',
+                        'listing_id': listing_id,
+                        'change_count': len(listing_events),
+                        'rapid_changes': rapid_changes.sum(),
+                        'confidence': min(rapid_changes.sum() / 10, 1.0),
+                        'details': self._get_listing_details(listing_id, listings)
+                    })
+        
+        return sorted(patterns, key=lambda x: x['confidence'], reverse=True)
+
+    def _get_listing_details(self, listing_id: str, listings: List[Dict]) -> Dict:
+        """Helper per recuperare i dettagli di un annuncio"""
+        for listing in listings:
+            if listing['id'] == listing_id:
+                return {
+                    'title': listing.get('title', 'N/D'),
+                    'plate': listing.get('plate', 'N/D'),
+                    'price': listing.get('original_price'),
+                    'url': listing.get('url'),
+                    'image_urls': listing.get('image_urls', [])[:1]  # Solo prima immagine
+                }
+        return {}
+    
     def _calculate_listing_quality(self, listings: List[Dict]) -> float:
         """Calcola uno score di qualità per gli annunci"""
         if not listings:
