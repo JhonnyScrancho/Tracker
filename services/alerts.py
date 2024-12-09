@@ -1,6 +1,6 @@
 import pandas as pd 
 import streamlit as st
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional
 from utils.datetime_utils import get_current_time, normalize_datetime, normalize_df_dates
 
@@ -122,3 +122,44 @@ class AlertSystem:
             alert for alert in st.session_state.alerts 
             if not alert['read']
         ]
+
+    def show_alerts(alerts: List[Dict]):
+        """Visualizza gli alert attivi"""
+        if not alerts:
+            return
+
+        st.sidebar.subheader("🚨 Alert Attivi")
+        
+        for alert in alerts:
+            color = {
+                'high': '#dc3545',
+                'warning': '#ffc107',
+                'info': '#0dcaf0'
+            }.get(alert['severity'], '#6c757d')
+
+            st.sidebar.markdown(
+                f"""
+                <div style="padding:10px;border-left:4px solid {color};margin-bottom:10px;">
+                    <strong>{alert['message']}</strong><br>
+                    <small>Tipo: {alert['type']}</small>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+    def get_recent_removals(tracker, dealer_id: str, hours: int = 24) -> List[Dict]:
+        """Recupera annunci rimossi recentemente"""
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        
+        try:
+            history = tracker.db.collection('history')\
+                .where('dealer_id', '==', dealer_id)\
+                .where('event', '==', 'removed')\
+                .where('date', '>', cutoff)\
+                .stream()
+                
+            return [doc.to_dict() for doc in history]
+            
+        except Exception as e:
+            st.error(f"❌ Errore recupero rimozioni: {str(e)}")
+            return []    
