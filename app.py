@@ -22,6 +22,7 @@ from services.analytics_service import AnalyticsService
 from components.reports import generate_weekly_report, show_trend_analysis
 from components.vehicle_comparison import show_comparison_view
 from services.alerts import AlertSystem
+from utils.datetime_utils import get_current_time, calculate_date_diff
 
 st.set_page_config(
     page_title="Auto Tracker",
@@ -794,8 +795,9 @@ class AutoTrackerApp:
                         if row.get('mileage'):
                             st.write(f"📏 KM: {row['mileage']:,}".replace(",", "."))
                         if row.get('first_seen'):
-                            days = (datetime.now() - pd.to_datetime(row['first_seen'])).days
-                            st.write(f"⏱️ Online da: {days} giorni")
+                            days = calculate_date_diff(row['first_seen'], get_current_time())
+                            if days is not None:
+                                st.write(f"⏱️ Online da: {days} giorni")
                     
                     with col4:
                         if st.button("🔍", key=f"view_{row['id']}"):
