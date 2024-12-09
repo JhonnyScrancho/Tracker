@@ -189,22 +189,16 @@ class AutoTrackerApp:
     def init_session_state(self):
         """Inizializza lo stato dell'applicazione"""
         if 'app_state' not in st.session_state:
-            st.session_state.app_state = {}
+            st.session_state.app_state = {
+                'update_status': {},
+                'settings_status': {},
+                'notifications': [],
+                'selected_view': 'dashboard',
+                'log_history': [],
+                'max_logs': 1000,
+                'selected_listing_id': None
+            }
 
-        # Assicurati che tutte le chiavi necessarie esistano
-        default_state = {
-            'update_status': {},
-            'settings_status': {},
-            'notifications': [],
-            'selected_view': 'dashboard',
-            'log_history': [],
-            'max_logs': 1000
-        }
-
-        # Inizializza ogni chiave se non esiste
-        for key, default_value in default_state.items():
-            if key not in st.session_state.app_state:
-                st.session_state.app_state[key] = default_value
 
     def add_log(self, message: str, type: str = "info"):
         """Aggiunge un messaggio al log con mantenimento limite"""
@@ -228,7 +222,7 @@ class AutoTrackerApp:
 
     def show_logs(self):
         """Mostra i log in un container scrollabile"""
-        with st.expander("📝 Log Operazioni", expanded=True):
+        with st.expander("📝 Log Operazioni", expanded=False):
             # Verifica che log_history esista prima di usarlo
             if 'log_history' not in st.session_state.app_state:
                 st.session_state.app_state['log_history'] = []
@@ -429,95 +423,151 @@ class AutoTrackerApp:
                         st.progress(pattern['confidence'])
     
     
+    def show_listing_detail(self, listing_id: str):
+        """Mostra dettaglio completo di un annuncio"""
+        listing = self.tracker.get_listing_by_id(listing_id)
+        if not listing:
+            st.error("❌ Annuncio non trovato")
+            return
+
+        st.subheader(listing.get('title', 'N/D'))
+
+        tabs = st.tabs([
+            "📊 Overview",
+            "📈 Storico Prezzi",
+            "🔄 Riapparizioni",
+            "👯 Annunci Simili"
+        ])
+
+        with tabs[0]:
+            cols = st.columns(3)
+            with cols[0]:
+                st.metric("💰 Prezzo", f"€{listing.get('original_price', 0):,.0f}")
+            with cols[1]:
+                st.metric("🚗 Targa", listing.get('plate', 'N/D'))
+            with cols[2]:
+                st.metric("📏 Chilometraggio", 
+                         f"{listing.get('mileage', 0):,}".replace(",", "."))
+
+            if listing.get('image_urls'):
+                st.image(listing['image_urls'][0], width=400)
+
+        with tabs[1]:
+            history = self.tracker.get_listing_history(listing_id)
+            if history:
+                fig = stats.create_price_history_chart(history)
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Nessuno storico prezzi disponibile")
+
+        with tabs[2]:
+            reappearances = self.tracker.get_listing_reappearances(listing_id)
+            if reappearances:
+                for reapp in reappearances:
+                    st.write(f"🔄 Rimosso il {reapp['removed_date'].strftime('%d/%m/%Y')}")
+                    st.write(f"↩️ Riapparso il {reapp['reappeared_date'].strftime('%d/%m/%Y')}")
+                    st.write(f"⏱️ Giorni offline: {reapp['days_offline']}")
+                    st.divider()
+            else:
+                st.info("Nessuna riapparizione rilevata")
+
+        with tabs[3]:
+            similar = self.tracker.find_similar_listings(listing)
+            if similar:
+                for sim in similar:
+                    with st.expander(f"{sim['title']} - {sim['similarity_score']:.0%} match"):
+                        cols = st.columns(2)
+                        with cols[0]:
+                            st.write("🚗 Targa:", sim.get('plate', 'N/D'))
+                            st.write("💰 Prezzo:", f"€{sim.get('original_price', 0):,.0f}")
+                            if sim.get('image_urls'):
+                                st.image(sim['image_urls'][0], width=200)
+                        with cols[1]:
+                            st.write("Caratteristiche corrispondenti:")
+                            for feature, matches in sim['matching_features'].items():
+                                st.write(f"{'✅' if matches else '❌'} {feature}")
+            else:
+                st.info("Nessun annuncio simile trovato")
+    
     def show_home(self):
-        """Mostra la home page"""
+        """Mostra la home page con lista annunci centralizzata"""
         st.title("🏠 Dashboard")
         
         dealers = self.tracker.get_dealers()
         if not dealers:
             st.info("👋 Aggiungi un concessionario per iniziare")
             return
-        
-        # Bottone aggiornamento massivo
-        if st.button("🔄 Aggiorna Tutto", use_container_width=False):
-            with st.status("⏳ Aggiornamento in corso...", expanded=True) as status:
-                try:
-                    total_listings = 0
-                    
-                    # Aggiorna ogni dealer
-                    for dealer in dealers:
-                        st.write(f"📥 Aggiornamento {dealer['url']}...")
-                        try:
-                            listings = self.tracker.scrape_dealer(dealer['url'])
-                            if listings:
-                                # Salva nuovi annunci
-                                self.tracker.save_listings(listings)
-                                # Marca inattivi quelli non più presenti
-                                self.tracker.mark_inactive_listings(dealer['id'], [l['id'] for l in listings])
-                                total_listings += len(listings)
-                                st.success(f"✅ Aggiornati {len(listings)} annunci per {dealer['url']}")
-                            else:
-                                st.warning(f"⚠️ Nessun annuncio trovato per {dealer['url']}")
-                        except Exception as e:
-                            st.error(f"❌ Errore per {dealer['url']}: {str(e)}")
-                            continue
-                    
-                    status.update(label=f"✅ Aggiornamento completato! Processati {total_listings} annunci totali", state="complete")
-                    
-                    # Aggiorna timestamp ultimo aggiornamento
-                    self.tracker.save_scheduler_config({
-                        'last_update': datetime.now()
-                    })
-                    
-                except Exception as e:
-                    status.update(label=f"❌ Errore durante l'aggiornamento: {str(e)}", state="error")
-            
-        # Statistiche globali
+
+        # Statistiche globali in colonne
         total_cars = 0
         total_value = 0
+        active_dealers = len(dealers)
         
         for dealer in dealers:
             listings = self.tracker.get_active_listings(dealer['id'])
             total_cars += len(listings)
             total_value += sum(l.get('original_price', 0) for l in listings if l.get('original_price'))
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("🏢 Concessionari", len(dealers))
-        with col2:    
-            st.metric("🚗 Auto Totali", total_cars)
-        with col3:
-            st.metric("💰 Valore Totale", f"€{total_value:,.0f}".replace(",", "."))
-            
-        # Lista dealers
-        st.subheader("🏢 Concessionari Monitorati")
-        
-        for dealer in dealers:
-            with st.expander(f"**{format_dealer_name(dealer['url'])}** - {dealer['url']}", expanded=False):
-                if dealer.get('last_update'):
-                    st.caption(f"Ultimo aggiornamento: {dealer['last_update'].strftime('%d/%m/%Y %H:%M')}")
-                    
-                listings = self.tracker.get_active_listings(dealer['id'])
-                if listings:
-                    st.write(f"📊 {len(listings)} annunci attivi")
-                    
-                    # Stats concessionario
-                    dealer_value = sum(l.get('original_price', 0) for l in listings if l.get('original_price'))
-                    missing_plates = len([l for l in listings if not l.get('plate')])
-                    
-                    cols = st.columns(3)
-                    with cols[0]:
-                        st.metric("💰 Valore Totale", f"€{dealer_value:,.0f}".replace(",", "."))
-                    with cols[1]:
-                        st.metric("🔍 Targhe Mancanti", missing_plates)
-                        
-                    # Bottone navigazione
-                    if st.button("🔍 Vedi Dettagli", key=f"view_{dealer['id']}", use_container_width=True):
-                        st.query_params["dealer_id"] = dealer['id']
-                        st.rerun()
-                else:
-                    st.info("ℹ️ Nessun annuncio attivo")
 
+        cols = st.columns(3)
+        with cols[0]:
+            st.metric("🏢 Concessionari", active_dealers)
+        with cols[1]:
+            st.metric("🚗 Auto Totali", total_cars)
+        with cols[2]:
+            st.metric("💰 Valore Totale", f"€{total_value:,.0f}".replace(",", "."))
+
+        # Lista completa annunci
+        st.subheader("📋 Tutti gli Annunci")
+        
+        # Recupera tutti gli annunci attivi
+        all_listings = []
+        for dealer in dealers:
+            dealer_listings = self.tracker.get_active_listings(dealer['id'])
+            for listing in dealer_listings:
+                listing['dealer_name'] = dealer.get('url', '').split('/')[-1].upper()
+            all_listings.extend(dealer_listings)
+
+        if all_listings:
+            # Filtri
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                min_price = st.number_input("Prezzo Minimo", min_value=0, step=1000)
+            with col2:
+                max_price = st.number_input("Prezzo Massimo", min_value=0, step=1000)
+            with col3:
+                dealer_filter = st.multiselect(
+                    "Concessionario",
+                    options=list(set(l['dealer_name'] for l in all_listings))
+                )
+
+            # Applica filtri
+            filtered_listings = [
+                l for l in all_listings
+                if (not min_price or l.get('original_price', 0) >= min_price) and
+                   (not max_price or l.get('original_price', 0) <= max_price) and
+                   (not dealer_filter or l['dealer_name'] in dealer_filter)
+            ]
+
+            # Gestione click su annuncio
+            for listing in filtered_listings:
+                with st.container():
+                    cols = st.columns([3, 2, 2, 1])
+                    with cols[0]:
+                        st.write(listing.get('title', 'N/D'))
+                    with cols[1]:
+                        st.write(f"€{listing.get('original_price', 0):,.0f}")
+                    with cols[2]:
+                        st.write(listing['dealer_name'])
+                    with cols[3]:
+                        if st.button("🔍", key=f"view_{listing['id']}"):
+                            st.session_state.app_state['selected_listing_id'] = listing['id']
+                            st.rerun()
+                st.divider()
+
+            # Dettaglio annuncio se selezionato
+            if st.session_state.app_state['selected_listing_id']:
+                self.show_listing_detail(st.session_state.app_state['selected_listing_id'])    
+    
     def show_dealer_view(self, dealer_id):
         """Mostra la vista del dealer con nuovo layout a tab"""
         # Recupera dealer
