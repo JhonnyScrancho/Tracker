@@ -699,36 +699,44 @@ class AutoTrackerApp:
                         st.write(row.get('title', 'N/D'))
                     
                     with col2:
-                        st.write("💰 Prezzo")
-                        st.write(f"€{row.get('original_price', 0):,.0f}")
+                        st.metric(
+                            "Prezzo",
+                            f"€{row.get('original_price', 0):,.0f}"
+                        )
                         if row.get('discounted_price'):
-                            st.write(f"🏷️ Scontato: €{row['discounted_price']:,.0f}")
+                            st.caption(f"Scontato: €{row['discounted_price']:,.0f}")
                     
                     with col3:
-                        st.write("🚘 Dettagli")
-                        st.write(f"Targa: {row.get('plate', 'N/D')}")
+                        st.write(f"🚗 Targa: {row.get('plate', 'N/D')}")
                         if row.get('mileage'):
-                            st.write(f"KM: {row['mileage']:,}".replace(",", "."))
+                            st.write(f"📏 KM: {row['mileage']:,}".replace(",", "."))
+                        if row.get('first_seen'):
+                            try:
+                                first_seen = normalize_datetime(row['first_seen'])
+                                current_time = get_current_time()
+                                days = calculate_date_diff(first_seen, current_time)
+                                if days is not None:
+                                    st.write(f"⏱️ Online da: {days} giorni")
+                            except Exception as e:
+                                st.error(f"Errore calcolo durata: {str(e)}")
                     
                     with col4:
                         st.write("📍 Dealer")
                         st.write(row['dealer_name'])
-                        if row.get('first_seen'):
-                            days_online = (datetime.now() - pd.to_datetime(row['first_seen'])).days
-                            st.write(f"Online da: {days_online} giorni")
                     
                     with col5:
                         st.write("Azioni")
                         if st.button("🔍", key=f"view_{row['id']}", help="Vedi dettagli"):
                             st.session_state['selected_listing'] = row['id']
                             st.experimental_rerun()
-                st.divider()
+                        
+                    st.divider()
         else:
             st.info("Nessun annuncio trovato con i filtri selezionati")
 
         # Se è stato selezionato un annuncio, mostra il dettaglio in una nuova pagina
         if st.session_state.get('selected_listing'):
-            self.show_listing_details(st.session_state['selected_listing'])    
+            self.show_listing_details(st.session_state['selected_listing']) 
     
     def show_dealer_view(self, dealer_id: str):
         """Mostra la vista principale del dealer con layout corretto"""
