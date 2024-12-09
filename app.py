@@ -801,14 +801,15 @@ class AutoTrackerApp:
                     
                     with col4:
                         if st.button("🔍", key=f"view_{row['id']}"):
-                            st.session_state['selected_listing'] = row['id']
+                            # Correzione: usa app_state invece di session_state direttamente
+                            st.session_state.app_state['selected_listing_id'] = row['id']
                             st.rerun()
                     
                     st.divider()
             
             # Se un annuncio è selezionato, mostra il dettaglio
-            if st.session_state.get('selected_listing'):
-                self.show_listing_detail(st.session_state['selected_listing'])
+            if st.session_state.app_state.get('selected_listing_id'):
+                self.show_listing_detail(st.session_state.app_state['selected_listing_id'])
                 
         with tab3:
             # Vista duplicati
