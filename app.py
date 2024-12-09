@@ -1,5 +1,6 @@
 from datetime import datetime
 import time
+from typing import Dict, List
 import pandas as pd
 from components import stats, tables
 import streamlit as st
@@ -521,6 +522,106 @@ class AutoTrackerApp:
                                     st.write(f"{'✓' if match else '✗'} {feature}")
             else:
                 st.info("Nessun annuncio simile trovato")
+    
+    
+    def find_similar_listings(self, listing_id: str) -> List[Dict]:
+        """
+        Finds similar vehicle listings based on multiple matching criteria
+        
+        Args:
+            listing_id: ID of the reference listing
+            
+        Returns:
+            List of similar listings with similarity scores and matching features
+        """
+        # Get reference listing
+        reference = self.get_listing_by_id(listing_id)
+        if not reference:
+            return []
+            
+        # Get all active listings from same dealer
+        all_listings = self.get_active_listings(reference['dealer_id'])
+        
+        # Remove reference listing and any duplicates
+        candidates = [l for l in all_listings 
+                    if l['id'] != listing_id 
+                    and not l.get('duplicate_of')]
+                    
+        similar_listings = []
+        
+        for candidate in candidates:
+            # Skip if same vehicle
+            if candidate['id'] == listing_id:
+                continue
+                
+            matching_features = {}
+            feature_scores = []
+            
+            # Compare title (brand/model)
+            if reference.get('title') and candidate.get('title'):
+                ref_brand_model = ' '.join(reference['title'].split()[:2]).lower()
+                cand_brand_model = ' '.join(candidate['title'].split()[:2]).lower()
+                title_match = ref_brand_model == cand_brand_model
+                matching_features['model'] = title_match
+                feature_scores.append(1.0 if title_match else 0.0)
+            
+            # Compare price with tolerance
+            if reference.get('original_price') and candidate.get('original_price'):
+                price_diff = abs(reference['original_price'] - candidate['original_price'])
+                price_avg = (reference['original_price'] + candidate['original_price']) / 2
+                price_similarity = max(0, 1 - (price_diff / price_avg))
+                matching_features['price'] = price_similarity > 0.9
+                feature_scores.append(price_similarity)
+            
+            # Compare mileage with tolerance
+            if reference.get('mileage') and candidate.get('mileage'):
+                km_diff = abs(reference['mileage'] - candidate['mileage'])
+                km_avg = (reference['mileage'] + candidate['mileage']) / 2
+                km_similarity = max(0, 1 - (km_diff / km_avg))
+                matching_features['mileage'] = km_similarity > 0.9
+                feature_scores.append(km_similarity)
+            
+            # Compare registration year
+            if reference.get('registration') and candidate.get('registration'):
+                ref_year = reference['registration'][:4]
+                cand_year = candidate['registration'][:4]
+                year_match = ref_year == cand_year
+                matching_features['year'] = year_match
+                feature_scores.append(1.0 if year_match else 0.0)
+            
+            # Compare fuel type
+            if reference.get('fuel') and candidate.get('fuel'):
+                fuel_match = reference['fuel'].lower() == candidate['fuel'].lower()
+                matching_features['fuel'] = fuel_match
+                feature_scores.append(1.0 if fuel_match else 0.0)
+            
+            # Compare transmission
+            if reference.get('transmission') and candidate.get('transmission'):
+                trans_match = reference['transmission'].lower() == candidate['transmission'].lower()
+                matching_features['transmission'] = trans_match
+                feature_scores.append(1.0 if trans_match else 0.0)
+            
+            # Calculate weighted similarity score
+            if feature_scores:
+                similarity_score = sum(feature_scores) / len(feature_scores)
+                
+                # Only include if similarity is significant
+                if similarity_score > 0.5:
+                    similar_listings.append({
+                        'id': candidate['id'],
+                        'title': candidate.get('title'),
+                        'price': candidate.get('original_price'),
+                        'mileage': candidate.get('mileage'),
+                        'registration': candidate.get('registration'),
+                        'fuel': candidate.get('fuel'),
+                        'transmission': candidate.get('transmission'),
+                        'image_urls': candidate.get('image_urls', []),
+                        'similarity_score': similarity_score,
+                        'matching_features': matching_features
+                    })
+        
+        # Sort by similarity score descending
+        return sorted(similar_listings, key=lambda x: x['similarity_score'], reverse=True)
     
     def show_home(self):
         """Mostra la dashboard principale con lista annunci centralizzata"""
