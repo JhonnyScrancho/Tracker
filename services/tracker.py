@@ -3,7 +3,7 @@ from firebase_admin import credentials, initialize_app, firestore
 from google.cloud.firestore import Query
 from bs4 import BeautifulSoup
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import streamlit as st
 import pandas as pd
 import firebase_admin
@@ -683,92 +683,200 @@ class AutoTracker:
         except ValueError:
             return None
 
+    def generate_vehicle_fingerprint(self, listing: Dict) -> Dict:
+        """Genera un'impronta digitale del veicolo per matching"""
+        fingerprint = {
+            'title_hash': hash(listing.get('title', '')),
+            'plate': listing.get('plate'),
+            'price': listing.get('original_price'),
+            'mileage': listing.get('mileage'),
+            'registration': listing.get('registration'),
+            'image_hashes': []
+        }
+        
+        # Genera hash per le immagini
+        if listing.get('image_urls'):
+            for img_url in listing.get('image_urls')[:3]:  # Prime 3 immagini
+                try:
+                    response = requests.get(img_url)
+                    img_array = np.asarray(bytearray(response.content), dtype=np.uint8)
+                    img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+                    if img is not None:
+                        # Calcola hash dell'immagine
+                        img_hash = cv2.img_hash.averageHash(img)[0].tobytes()
+                        fingerprint['image_hashes'].append(img_hash)
+                except Exception as e:
+                    st.error(f"Errore nel calcolo hash immagine: {str(e)}")
+        
+        return fingerprint
+
+    def find_matching_vehicle(self, listing: Dict) -> Optional[str]:
+        """Trova vehicle_id corrispondente o ne crea uno nuovo"""
+        fingerprint = self.generate_vehicle_fingerprint(listing)
+        
+        # Cerca prima per ID annuncio
+        existing = self.db.collection('vehicle_entities')\
+            .where('listing_ids', 'array_contains', listing['id'])\
+            .limit(1)\
+            .stream()
+        
+        existing_list = list(existing)
+        if existing_list:
+            return existing_list[0].id
+            
+        # Cerca per targa se presente
+        if fingerprint['plate']:
+            plate_match = self.db.collection('vehicle_entities')\
+                .where('plate', '==', fingerprint['plate'])\
+                .limit(1)\
+                .stream()
+            
+            plate_list = list(plate_match)
+            if plate_list:
+                return plate_list[0].id
+        
+        # Cerca per similarità immagini
+        if fingerprint['image_hashes']:
+            vehicles = self.db.collection('vehicle_entities').stream()
+            for vehicle in vehicles:
+                vehicle_data = vehicle.to_dict()
+                if self._compare_image_hashes(
+                    fingerprint['image_hashes'],
+                    vehicle_data.get('image_hashes', [])
+                ):
+                    return vehicle.id
+        
+        # Crea nuovo vehicle_id
+        vehicle_ref = self.db.collection('vehicle_entities').document()
+        vehicle_ref.set({
+            'first_seen': datetime.now(timezone.utc),
+            'listing_ids': [listing['id']],
+            'fingerprint': fingerprint,
+            'last_update': datetime.now(timezone.utc)
+        })
+        
+        return vehicle_ref.id
+
+    def _compare_image_hashes(self, hashes1: List, hashes2: List, threshold: int = 5) -> bool:
+        """Confronta hash immagini per determinare similarità"""
+        if not hashes1 or not hashes2:
+            return False
+            
+        for hash1 in hashes1:
+            for hash2 in hashes2:
+                # Calcola distanza di Hamming
+                h1 = np.frombuffer(hash1, dtype=np.uint8)
+                h2 = np.frombuffer(hash2, dtype=np.uint8)
+                if cv2.norm(h1, h2, cv2.NORM_HAMMING) <= threshold:
+                    return True
+        return False
+    
     def save_listings(self, listings):
-        """Salva o aggiorna gli annunci con tracciamento migliorato"""
+        """Salva o aggiorna gli annunci con rilevamento duplicati"""
         batch = self.db.batch()
-        timestamp = get_current_time()
+        timestamp = datetime.now(timezone.utc)
         
         print(f"Salvataggio di {len(listings)} annunci")
         
         for listing in listings:
             doc_ref = self.db.collection('listings').document(listing['id'])
             
-            # Normalizzazione completa dei dati
+            # Check duplicato tramite targa o immagini
+            duplicate_id = None
+            if listing.get('plate'):
+                # Cerca per targa
+                existing = self.db.collection('listings')\
+                    .where('plate', '==', listing['plate'])\
+                    .where('id', '!=', listing['id'])\
+                    .where('active', '==', True)\
+                    .limit(1)\
+                    .stream()
+                exists = list(existing)
+                if exists:
+                    duplicate_id = exists[0].id
+            
+            if not duplicate_id and listing.get('image_urls'):
+                # Cerca per prima immagine
+                existing = self.db.collection('listings')\
+                    .where('image_urls', 'array_contains', listing['image_urls'][0])\
+                    .where('id', '!=', listing['id'])\
+                    .where('active', '==', True)\
+                    .limit(1)\
+                    .stream()
+                exists = list(existing)
+                if exists:
+                    duplicate_id = exists[0].id
+
+            # Normalizzazione dati
             normalized_listing = {
                 'id': listing['id'],
                 'active': True,
                 'dealer_id': listing['dealer_id'],
+                'duplicate_of': duplicate_id,  # ID dell'annuncio duplicato se trovato
                 'title': listing.get('title', ''),
                 'url': listing.get('url', ''),
                 'plate': listing.get('plate', ''),
                 'original_price': float(listing.get('original_price', 0)) if listing.get('original_price') else None,
                 'discounted_price': float(listing.get('discounted_price', 0)) if listing.get('discounted_price') else None,
-                'has_discount': bool(listing.get('has_discount', False)),
                 'mileage': int(listing.get('mileage', 0)) if listing.get('mileage') else None,
                 'registration': listing.get('registration'),
                 'fuel': listing.get('fuel'),
-                'power': listing.get('power'),
-                'transmission': listing.get('transmission'),
-                'consumption': listing.get('consumption'),
                 'image_urls': listing.get('image_urls', []),
-                'last_seen': timestamp,
-                'price_history': [],  # Nuovo: traccia storico prezzi
-                'reappearance_count': 0,  # Nuovo: conta riapparizioni
-                'status_changes': []  # Nuovo: traccia cambi stato
+                'last_seen': timestamp
             }
             
             # Gestione documento esistente
             doc = doc_ref.get()
             if doc.exists:
                 existing_data = doc.to_dict()
-                
-                # Aggiorna storico prezzi se necessario
+                normalized_listing['first_seen'] = existing_data.get('first_seen')
+                # Mantieni targa editata se presente
+                if existing_data.get('plate_edited'):
+                    normalized_listing['plate'] = existing_data['plate']
+                    normalized_listing['plate_edited'] = True
+                    
+                # Traccia variazione prezzo
                 if existing_data.get('original_price') != normalized_listing['original_price']:
-                    price_history = existing_data.get('price_history', [])
-                    price_history.append({
+                    normalized_listing['price_history'] = existing_data.get('price_history', [])
+                    normalized_listing['price_history'].append({
                         'price': existing_data['original_price'],
                         'date': existing_data['last_seen']
                     })
-                    normalized_listing['price_history'] = price_history
-
-                # Gestione riapparizioni
-                if not existing_data.get('active'):
-                    normalized_listing['reappearance_count'] = existing_data.get('reappearance_count', 0) + 1
-                    normalized_listing['reappeared'] = True
-                
-                # Mantieni dati importanti
-                normalized_listing['first_seen'] = existing_data.get('first_seen')
-                normalized_listing['plate_edited'] = existing_data.get('plate_edited')
-                normalized_listing['plate_edit_date'] = existing_data.get('plate_edit_date')
             else:
                 normalized_listing['first_seen'] = timestamp
+                normalized_listing['price_history'] = []
             
             batch.set(doc_ref, normalized_listing, merge=True)
             
-            # Registra evento con dettagli migliorati
+            # Registra evento
             history_ref = self.db.collection('history').document()
             history_data = {
                 'listing_id': listing['id'],
                 'dealer_id': listing['dealer_id'],
+                'duplicate_of': duplicate_id,
                 'plate': normalized_listing['plate'],
                 'price': normalized_listing['original_price'],
-                'discounted_price': normalized_listing['discounted_price'],
                 'date': timestamp,
-                'event': 'update',
-                'event_details': {
-                    'plate': normalized_listing['plate'],
-                    'title': normalized_listing['title'],
-                    'reappeared': normalized_listing.get('reappeared', False),
-                    'price_changed': doc.exists and existing_data.get('original_price') != normalized_listing['original_price']
-                }
+                'event': 'update'
             }
             batch.set(history_ref, history_data)
         
-        batch.commit()
-        
-        # Analizza anomalie dopo salvataggio
-        self._analyze_new_listings(listings)
+        try:
+            batch.commit()
+        except Exception as e:
+            st.error(f"❌ Errore nel commit del batch: {str(e)}")
 
+    def get_listing_by_id(self, listing_id: str) -> Optional[Dict]:
+        """Recupera un annuncio specifico con controllo cache"""
+        try:
+            doc = self.db.collection('listings').document(listing_id).get()
+            if doc.exists:
+                return doc.to_dict()
+            return None
+        except Exception as e:
+            st.error(f"❌ Errore nel recupero annuncio: {str(e)}")
+            return None
+    
     def _analyze_new_listings(self, listings: List[Dict]):
         """Analizza nuovi annunci per anomalie"""
         try:
@@ -1164,4 +1272,45 @@ class AutoTracker:
             })
             
         except Exception as e:
-            st.error(f"❌ Errore nella pianificazione: {str(e)}")    
+            st.error(f"❌ Errore nella pianificazione: {str(e)}") 
+
+
+
+    def optimize_listing_query(self, dealer_id: str, last_hours: int = 24) -> List[Dict]:
+        """Query ottimizzata per recupero annunci recenti"""
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=last_hours)
+        
+        try:
+            # Cache query per performance
+            cache_key = f"listings_{dealer_id}_{last_hours}"
+            if cache_key in st.session_state and \
+            st.session_state[cache_key]['timestamp'] > cutoff:
+                return st.session_state[cache_key]['data']
+            
+            # Query base
+            query = self.db.collection('listings')\
+                .where('dealer_id', '==', dealer_id)\
+                .where('active', '==', True)\
+                .where('last_seen', '>', cutoff)
+                
+            # Esegui query
+            docs = query.stream()
+            listings = [{**doc.to_dict(), 'id': doc.id} for doc in docs]
+            
+            # Cache risultati
+            st.session_state[cache_key] = {
+                'data': listings,
+                'timestamp': datetime.now(timezone.utc)
+            }
+            
+            return listings
+            
+        except Exception as e:
+            st.error(f"❌ Errore query ottimizzata: {str(e)}")
+            return []
+
+    def batch_update_listings(self, listings: List[Dict], batch_size: int = 500):
+        """Aggiorna listings in batch per performance"""
+        for i in range(0, len(listings), batch_size):
+            batch = listings[i:i + batch_size]
+            self.save_listings(batch)          

@@ -4,6 +4,7 @@ from datetime import datetime
 import plotly.graph_objects as go
 from typing import List, Dict, Optional
 from utils.datetime_utils import normalize_df_dates, get_current_time, calculate_date_diff
+from utils.stats import create_price_history_chart
 
 def show_anomaly_dashboard(tracker, dealer_id: str):
     """Mostra dashboard completa delle anomalie per un dealer"""
@@ -390,3 +391,51 @@ def show_temporal_analysis(df_history: pd.DataFrame, df_listings: pd.DataFrame):
     )
     
     st.plotly_chart(hour_fig, use_container_width=True)
+
+
+def show_listing_details(tracker, listing_id: str):
+        """Mostra dettagli completi di un singolo annuncio"""
+        listing = tracker.get_listing_by_id(listing_id)
+        if not listing:
+            st.error("❌ Annuncio non trovato")
+            return
+
+        # Info base
+        st.subheader(listing.get('title', 'N/D'))
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("💰 Prezzo", 
+                    f"€{listing.get('original_price', 0):,.0f}".replace(",", "."))
+        with col2:
+            if listing.get('plate'):
+                st.metric("🚗 Targa", listing['plate'])
+        with col3:
+            if listing.get('mileage'):
+                st.metric("📏 Chilometraggio", 
+                        f"{listing['mileage']:,}".replace(",", "."))
+
+        # Storico prezzi
+        if listing.get('price_history'):
+            st.subheader("📈 Storico Prezzi")
+            fig = create_price_history_chart(listing['price_history'])
+            st.plotly_chart(fig, use_container_width=True)
+
+        # Info duplicati
+        if listing.get('duplicate_of'):
+            st.warning(f"⚠️ Questo annuncio è un duplicato di: {listing['duplicate_of']}")
+            with st.expander("Vedi dettagli duplicato"):
+                duplicate = tracker.get_listing_by_id(listing['duplicate_of'])
+                if duplicate:
+                    st.write(f"Titolo: {duplicate.get('title')}")
+                    st.write(f"Prezzo: €{duplicate.get('original_price', 0):,.0f}")
+                    if duplicate.get('image_urls'):
+                        st.image(duplicate['image_urls'][0], width=300)
+
+        # Immagini
+        if listing.get('image_urls'):
+            st.subheader("🖼️ Galleria")
+            cols = st.columns(3)
+            for idx, img_url in enumerate(listing['image_urls']):
+                with cols[idx % 3]:
+                    st.image(img_url)

@@ -1,5 +1,6 @@
 from datetime import datetime
 import time
+from components import stats, tables
 import streamlit as st
 import sys
 from pathlib import Path
@@ -15,7 +16,7 @@ from components.sidebar import show_sidebar
 from services.tracker import AutoTracker
 
 # Nuovi import
-from components.anomaly_dashboard import show_anomaly_dashboard
+from components.anomaly_dashboard import show_anomaly_dashboard, show_listing_details
 from services.analytics_service import AnalyticsService
 from services.alerts import AlertSystem
 from components.reports import generate_weekly_report, show_trend_analysis
@@ -192,9 +193,53 @@ class AutoTrackerApp:
                 'update_status': {},
                 'settings_status': {},
                 'notifications': [],
-                'selected_view': 'dashboard'
+                'selected_view': 'dashboard',
+                'log_history': [],
+                'max_logs': 1000 
             }
 
+    def add_log(self, message: str, type: str = "info"):
+        """Aggiunge un messaggio al log con mantenimento limite"""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        log_entry = {
+            'timestamp': timestamp,
+            'message': message,
+            'type': type
+        }
+        
+        st.session_state.app_state['log_history'].append(log_entry)
+        
+        # Mantiene limite log
+        if len(st.session_state.app_state['log_history']) > st.session_state.app_state['max_logs']:
+            st.session_state.app_state['log_history'].pop(0)
+
+    def show_logs(self):
+        """Mostra i log in un container scrollabile"""
+        with st.expander("📝 Log Operazioni", expanded=True):
+            log_html = """
+                <div class="log-container">
+                    {}
+                </div>
+            """.format(
+                '\n'.join(
+                    f'<div class="log-entry log-{log["type"]}">[{log["timestamp"]}] {log["message"]}</div>'
+                    for log in st.session_state.app_state['log_history']
+                )
+            )
+            st.markdown(log_html, unsafe_allow_html=True)
+            
+            if st.session_state.app_state['log_history']:
+                if st.download_button(
+                    "📥 Esporta Log",
+                    '\n'.join(
+                        f'[{log["timestamp"]}] {log["message"]}'
+                        for log in st.session_state.app_state['log_history']
+                    ),
+                    file_name=f"autotracker_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                    mime="text/plain"
+                ):
+                    st.success("✅ Log esportato con successo")
+    
     def show_notification(self, message, type="info"):
         """Mostra una notifica all'utente"""
         if type == "success":
@@ -263,6 +308,17 @@ class AutoTrackerApp:
         
         # Mostra la sidebar
         selected_dealer = show_sidebar(self.tracker)
+
+        # Controlla alert
+        if dealers:
+            all_alerts = []
+            for dealer in dealers:
+                alerts = check_alert_conditions(self.tracker, dealer['id'])
+                all_alerts.extend(alerts)
+            
+            # Mostra alert se presenti
+            if all_alerts:
+                show_alerts(all_alerts)
 
         # Main content
         if not dealers:
@@ -452,9 +508,7 @@ class AutoTrackerApp:
                     st.info("ℹ️ Nessun annuncio attivo")
 
     def show_dealer_view(self, dealer_id):
-        """Mostra la vista del dealer"""
-        from components import stats, plate_editor, filters, tables
-        
+        """Mostra la vista del dealer con nuovo layout a tab"""
         # Recupera dealer
         dealers = self.tracker.get_dealers()
         dealer = next((d for d in dealers if d['id'] == dealer_id), None)
@@ -467,54 +521,100 @@ class AutoTrackerApp:
         st.title(f"🏢 {format_dealer_name(dealer['url'])}")
         st.caption(dealer['url'])
         
-        if dealer.get('last_update'):
-            st.info(f"📅 Ultimo aggiornamento: {dealer['last_update'].strftime('%d/%m/%Y %H:%M')}")
-            
-        # Bottone aggiorna
-        if st.button("🔄 Aggiorna Annunci", use_container_width=True):
-            with st.status("⏳ Aggiornamento in corso...", expanded=True) as status:
-                try:
-                    listings = self.tracker.scrape_dealer(dealer['url'])
-                    if listings:
-                        for listing in listings:
-                            listing['dealer_id'] = dealer['id']
-                        self.tracker.save_listings(listings)
-                        self.tracker.mark_inactive_listings(dealer['id'], [l['id'] for l in listings])
-                        status.update(label="✅ Aggiornamento completato!", state="complete")
-                        st.rerun()
-                    else:
-                        status.update(label="⚠️ Nessun annuncio trovato", state="error")
-                except Exception as e:
-                    status.update(label=f"❌ Errore: {str(e)}", state="error")
-                    
-        # Statistiche dealer
-        stats.show_dealer_overview(self.tracker, dealer_id)
+        # Tabs principale
+        tab1, tab2, tab3, tab4 = st.tabs([
+            "📊 Dashboard",
+            "🔍 Dettaglio Annunci",
+            "⚠️ Duplicati",
+            "📈 Analisi"
+        ])
         
-        # Filtri
-        active_filters = filters.show_filters()
-        
-        # Lista annunci
-        listings = self.tracker.get_active_listings(dealer_id)
-        if listings:
-            # Applica filtri
-            if active_filters:
-                if active_filters.get('min_price'):
-                    listings = [l for l in listings if l.get('original_price', 0) >= active_filters['min_price']]
-                if active_filters.get('max_price'):
-                    listings = [l for l in listings if l.get('original_price', 0) <= active_filters['max_price']]
-                if active_filters.get('missing_plates_only'):
-                    listings = [l for l in listings if not l.get('plate')]
+        with tab1:
+            # Overview principale
+            if dealer.get('last_update'):
+                st.info(f"📅 Ultimo aggiornamento: {dealer['last_update'].strftime('%d/%m/%Y %H:%M')}")
                 
-            # Tabella annunci
-            tables.show_listings_table(listings)
+            # Bottone aggiorna
+            if st.button("🔄 Aggiorna Annunci", use_container_width=True):
+                with st.status("⏳ Aggiornamento in corso...", expanded=True) as status:
+                    try:
+                        self.add_log("Avvio aggiornamento annunci...")
+                        listings = self.tracker.scrape_dealer(dealer['url'])
+                        if listings:
+                            self.tracker.save_listings(listings)
+                            self.add_log(f"✅ Aggiornati {len(listings)} annunci")
+                            status.update(label="✅ Aggiornamento completato!", state="complete")
+                            st.rerun()
+                        else:
+                            self.add_log("⚠️ Nessun annuncio trovato", "warning")
+                            status.update(label="⚠️ Nessun annuncio trovato", state="error")
+                    except Exception as e:
+                        self.add_log(f"❌ Errore: {str(e)}", "error")
+                        status.update(label=f"❌ Errore: {str(e)}", state="error")
+
+            # Statistiche dealer
+            stats.show_dealer_overview(self.tracker, dealer_id)
             
-            # Editor targhe
-            plate_editor.show_plate_editor(self.tracker, listings)
+        with tab2:
+            # Lista annunci con possibilità di selezionare dettaglio
+            listings = self.tracker.get_active_listings(dealer_id)
+            if listings:
+                # Selezione annuncio
+                selected_listing = st.selectbox(
+                    "Seleziona Annuncio",
+                    options=[l['id'] for l in listings],
+                    format_func=lambda x: next((l['title'] for l in listings if l['id'] == x), x)
+                )
+                
+                if selected_listing:
+                    # Mostra dettaglio annuncio
+                    show_listing_details(self.tracker, selected_listing)
+                
+                # Tabella generale
+                st.subheader("📋 Tutti gli Annunci")
+                tables.show_listings_table(listings)
+                
+        with tab3:
+            # Vista duplicati
+            self.show_duplicates_view(dealer_id)
             
-            # Grafici
+        with tab4:
+            # Analisi trend
             stats.show_dealer_insights(self.tracker, dealer_id)
-        else:
-            st.warning("⚠️ Nessun annuncio attivo")
+            
+        # Log operazioni
+        self.show_logs()
+
+    def show_duplicates_view(self, dealer_id: str):
+        """Mostra vista dedicata ai duplicati"""
+        listings = self.tracker.get_active_listings(dealer_id)
+        duplicates = [l for l in listings if l.get('duplicate_of')]
+        
+        if not duplicates:
+            st.info("✅ Nessun duplicato rilevato")
+            return
+            
+        st.warning(f"⚠️ Rilevati {len(duplicates)} annunci duplicati")
+        
+        for dup in duplicates:
+            with st.expander(f"{dup.get('title', 'N/D')} - {dup['id']}"):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.write("### Annuncio Duplicato")
+                    st.write(f"ID: {dup['id']}")
+                    st.write(f"Prezzo: €{dup.get('original_price', 0):,.0f}")
+                    if dup.get('image_urls'):
+                        st.image(dup['image_urls'][0], width=300)
+                        
+                with col2:
+                    st.write("### Annuncio Originale")
+                    original = self.tracker.get_listing_by_id(dup['duplicate_of'])
+                    if original:
+                        st.write(f"ID: {original['id']}")
+                        st.write(f"Prezzo: €{original.get('original_price', 0):,.0f}")
+                        if original.get('image_urls'):
+                            st.image(original['image_urls'][0], width=300)
 
     def show_settings(self):
         """Mostra la pagina impostazioni"""
