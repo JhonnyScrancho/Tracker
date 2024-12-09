@@ -1,6 +1,6 @@
 from datetime import datetime
 import time
-from turtle import pd
+import pandas as pd
 from components import stats, tables
 import streamlit as st
 import sys
