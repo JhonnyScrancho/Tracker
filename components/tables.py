@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
+from utils.formatting import format_price
 from datetime import datetime
 import pytz
-from utils.formatting import format_price
 
 def show_listings_table(listings, highlight_anomalies=True):
     """Visualizza la tabella degli annunci con evidenziazione anomalie"""
@@ -42,14 +42,13 @@ def show_listings_table(listings, highlight_anomalies=True):
         
         # Formattazione colonne base
         df['thumbnail'] = df['image_urls'].apply(
-            lambda x: f'<img src="{x[0]}" class="table-img" alt="Auto" title="{len(x)} immagini disponibili">' 
-            if x and len(x) > 0 else '❌'
+            lambda x: f'<img src="{x[0]}" class="table-img" alt="Auto">' if x and len(x) > 0 else '❌'
         )
         
         df['listing_id'] = df['id'].apply(
             lambda x: f'<span class="listing-id">{x}</span>'
         )
-
+        
         # Formattazione titolo con evidenziazione riapparizioni
         df['title'] = df.apply(lambda row: 
             f'<div class="col-modello {" reappeared" if row.get("reappeared") else ""}">'
@@ -58,7 +57,7 @@ def show_listings_table(listings, highlight_anomalies=True):
             axis=1
         )
         
-        # Formattazione prezzo con evidenziazione anomalie e variazioni
+        # Formattazione prezzo con evidenziazione anomalie
         def format_price_cell(row):
             price = row['original_price']
             cell_class = 'col-prezzo'
@@ -67,22 +66,15 @@ def show_listings_table(listings, highlight_anomalies=True):
                 if abs(price - avg_price) > price_threshold:
                     cell_class += ' price-anomaly'
                     
-            # Aggiungi indicatore variazione se presente
-            price_html = format_price(price)
-            if row.get('price_variation'):
-                variation = row['price_variation']
-                variation_class = 'variation-positive' if variation > 0 else 'variation-negative'
-                price_html += f' <span class="{variation_class}">({variation:+.1f}%)</span>'
-                
-            return f'<div class="{cell_class}">{price_html}</div>'
+            formatted_price = format_price(price)
+            return f'<div class="{cell_class}">{formatted_price}</div>'
             
         df['prezzo'] = df.apply(format_price_cell, axis=1)
         
         # Formattazione prezzo scontato
-        df['prezzo_scontato'] = df.apply(
-            lambda row: f'<div class="col-prezzo discount">{format_price(row["discounted_price"])}</div>'
-            if pd.notna(row.get('discounted_price')) else "", 
-            axis=1
+        df['prezzo_scontato'] = df['discounted_price'].apply(
+            lambda x: f'<div class="col-prezzo discount">{format_price(x)}</div>'
+            if pd.notna(x) else ""
         )
         
         # Formattazione chilometri con evidenziazione anomalie
@@ -109,7 +101,7 @@ def show_listings_table(listings, highlight_anomalies=True):
             lambda x: f'<div class="col-carburante">{x}</div>' if pd.notna(x) else "N/D"
         )
         
-        # Formattazione link e icone stato
+        # Formattazione link con icone stato
         def format_link_cell(row):
             icons = []
             
@@ -134,14 +126,8 @@ def show_listings_table(listings, highlight_anomalies=True):
             
             if row.get('plate_edited'):
                 cell_class += ' plate-edited'
-
-            # Aggiungi confidenza OCR se disponibile
-            confidence_html = ''
-            if row.get('plate_confidence'):
-                confidence = row['plate_confidence']
-                confidence_html = f' <small>({confidence:.0%})</small>'
                 
-            return f'<div class="{cell_class}">{plate or "N/D"}{confidence_html}</div>'
+            return f'<div class="{cell_class}">{plate or "N/D"}</div>'
             
         df['targa'] = df.apply(format_plate_cell, axis=1)
         
@@ -174,6 +160,17 @@ def show_listings_table(listings, highlight_anomalies=True):
         df = df[available_columns]
         df.columns = [display_columns[col] for col in available_columns]
         
+        # Aggiungi CSS per evidenziare anomalie
+        st.markdown("""
+            <style>
+                .price-anomaly { color: #ff4b4b !important; font-weight: bold; }
+                .mileage-anomaly { color: #ff4b4b !important; font-weight: bold; }
+                .plate-edited { background-color: #fffae6; }
+                .reappeared { background-color: #e6f3ff; }
+                .discount { color: #28a745 !important; }
+            </style>
+        """, unsafe_allow_html=True)
+        
         # Mostra tabella
         st.write(df.to_html(escape=False, index=False), unsafe_allow_html=True)
         
@@ -190,66 +187,45 @@ def show_comparison_table(similar_vehicles):
     for group in similar_vehicles:
         df = pd.DataFrame(group)
         
-        # Formattazione valori
         df['price'] = df['price'].apply(lambda x: format_price(x))
         df['mileage'] = df['mileage'].apply(
             lambda x: f"{x:,.0f} km".replace(",", ".") if pd.notna(x) else "N/D"
         )
         
-        # Evidenzia similitudini
-        def highlight_similarities(s):
-            if s.name in ['price', 'mileage']:
-                # Calcola range accettabile
-                values = pd.to_numeric(s.str.replace('[^0-9.]', '', regex=True))
-                mean = values.mean()
-                threshold = mean * 0.1  # 10% di variazione
-                
-                return ['background-color: #d1fae5' 
-                       if abs(float(str(v).replace(',', '')) - mean) <= threshold 
-                       else '' for v in values]
-            return ['' for _ in range(len(s))]
-        
-        # Applica stili
-        styled_df = df.style.apply(highlight_similarities)
-        
-        st.write(styled_df.to_html(escape=False, index=False), unsafe_allow_html=True)
+        st.write(df.to_html(escape=False, index=False), unsafe_allow_html=True)
         st.markdown("---")
 
 def show_timeline_table(history_data):
-    """Mostra tabella cronologica eventi con dettagli migliorati"""
+    """Mostra tabella cronologica eventi"""
     if not history_data:
         return
         
     df = pd.DataFrame(history_data)
     
-    # Converti date
-    df['date'] = pd.to_datetime(df['date']).dt.strftime('%d/%m/%Y %H:%M')
+    # Helper function per date
+    def safe_convert_to_utc(dt):
+        if pd.isna(dt):
+            return None
+        if isinstance(dt, str):
+            dt = pd.to_datetime(dt)
+        if dt.tzinfo is None:
+            return dt.tz_localize('UTC')
+        return dt.tz_convert('UTC')
     
-    # Formatta prezzi e variazioni
+    # Converti e formatta colonne
+    df['date'] = df['date'].apply(safe_convert_to_utc).dt.strftime('%d/%m/%Y %H:%M')
     df['price'] = df['price'].apply(lambda x: format_price(x) if pd.notna(x) else "N/D")
     
-    # Formatta eventi con icone
+    # Formatta evento
     event_icons = {
         'update': '🔄',
         'removed': '❌',
         'reappeared': '↩️',
         'price_changed': '💰'
     }
-    
-    def format_event(row):
-        event = row['event']
-        details = ''
-        
-        if event == 'price_changed' and row.get('price_variation'):
-            variation = row['price_variation']
-            details = f" ({variation:+.1f}%)"
-            
-        return f"{event_icons.get(event, '❓')} {event.title()}{details}"
-    
-    df['event'] = df.apply(format_event, axis=1)
+    df['event'] = df['event'].apply(lambda x: f"{event_icons.get(x, '❓')} {x.title()}")
     
     # Rinomina colonne
     df.columns = [col.title() for col in df.columns]
     
-    # Mostra tabella
     st.write(df.to_html(escape=False, index=False), unsafe_allow_html=True)

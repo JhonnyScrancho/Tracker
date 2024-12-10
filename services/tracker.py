@@ -93,71 +93,37 @@ class AutoTracker:
         # Recupera dealer_id dall'URL
         dealer_id = dealer_url.split('/')[-1]
         
-        # Container per log con altezza fissa e progress
-        log_container = st.container()
-        with log_container:
-            log_placeholder = st.empty()
-            progress_bar = st.progress(0)
-            metrics_container = st.columns(3)
+        # Recupera impostazioni dealer
+        dealer_doc = self.db.collection('dealers').document(dealer_id).get()
+        if not dealer_doc.exists:
+            st.error("❌ Concessionario non trovato")
+            return []
             
-        # Variabili per tracking statistiche e log
-        log_messages = []
-        stats = {
-            'processed': 0,
-            'new': 0,
-            'updated': 0,
-            'total_value': 0,
-            'start_time': datetime.now()
-        }
-        
-        def update_log(message: str, type: str = "info"):
-            """Aggiorna il log con formattazione e auto-scroll"""
-            timestamp = datetime.now().strftime("%H:%M:%S")
-            log_messages.append(f"<div class='log-entry log-{type}'>[{timestamp}] {message}</div>")
-            # Mantieni ultimi 100 messaggi per performance
-            if len(log_messages) > 100:
-                log_messages.pop(0)
-            log_placeholder.markdown(f"""
-                <div class="log-container">
-                    {''.join(log_messages)}
-                </div>
-            """, unsafe_allow_html=True)
+        dealer_data = dealer_doc.to_dict()
+        no_targa = dealer_data.get('no_targa', False)
+
+        st.info("🔍 Inizio scraping della pagina...")
         
         try:
-            # Recupera dealer
-            dealer_doc = self.db.collection('dealers').document(dealer_id).get()
-            if not dealer_doc.exists:
-                st.error("❌ Concessionario non trovato")
-                return []
-                
-            dealer_data = dealer_doc.to_dict()
-            no_targa = dealer_data.get('no_targa', False)
-
-            # Recupera stato precedente per confronto
-            previous_listings = self.get_active_listings(dealer_id)
-            previous_stats = {
-                'count': len(previous_listings),
-                'total_value': sum(l.get('original_price', 0) for l in previous_listings if l.get('original_price'))
-            }
-
-            update_log("🔍 Inizio scraping della pagina...")
-            
-            # Controllo paginazione
+            # Controllo iniziale della paginazione
             response = requests.get(dealer_url, headers=self.session.headers, timeout=30)
             response.raise_for_status()
             
             soup = BeautifulSoup(response.text, 'lxml')
+            
+            # Cerca il div della paginazione
             pagination = soup.select_one('.scr-pagination')
             total_pages = 1
             
             if pagination:
+                # Cerca l'indicatore pagina totale (es: "1 / 5")
                 page_indicator = pagination.select_one('.pagination-item--page-indicator')
                 if page_indicator:
                     try:
                         total_pages = int(page_indicator.text.split('/')[-1].strip())
-                        update_log(f"📚 Rilevate {total_pages} pagine da processare")
+                        st.info(f"📚 Rilevate {total_pages} pagine da processare")
                     except:
-                        update_log("⚠️ Non riesco a determinare il numero totale di pagine", "warning")
+                        st.warning("⚠️ Non riesco a determinare il numero totale di pagine")
             
             # Inizializzazione variabili
             all_listings = []
@@ -166,42 +132,45 @@ class AutoTracker:
             vision_requests_per_hour = 50
             vision_requests_count = 0
             
-            # Recupera annunci esistenti
-            existing_listings = {l['id']: l for l in previous_listings}
+            # Stima tempo totale
+            estimated_time = total_pages * seconds_between_requests
+            st.write(f"⏱️ Tempo stimato: circa {estimated_time/60:.1f} minuti")
             
-            # Inizializza il servizio di visione
+            # Recupera gli annunci esistenti e loro dati
+            existing_listings = {l['id']: l for l in self.get_active_listings(dealer_id)}
+            
+            # Inizializza il servizio di visione solo se necessario e disponibile
             vision_service = None
             if not no_targa and self.vision and 'vision' in st.secrets and 'api_key' in st.secrets['vision']:
                 vision_service = VisionService(st.secrets["vision"]["api_key"])
 
             # Processo ogni pagina
             for page in range(1, total_pages + 1):
-                update_log(f"📄 Processando pagina {page}/{total_pages}")
+                st.write(f"📄 Processando pagina {page}/{total_pages}")
                 
-                # Costruisci URL pagina
+                # Costruisci URL con parametro pagina
                 page_url = f"{dealer_url}?page={page}" if page > 1 else dealer_url
                 
+                # Aspetta per rispettare il rate limit
                 time.sleep(seconds_between_requests)
                 
                 response = requests.get(page_url, headers=self.session.headers, timeout=30)
                 response.raise_for_status()
                 
                 soup = BeautifulSoup(response.text, 'lxml')
+                
+                # Cerca gli annunci
                 articles = soup.select('article.dp-listing-item')
                 
                 if not articles:
-                    update_log(f"⚠️ Nessun annuncio trovato nella pagina {page}", "warning")
+                    st.warning(f"⚠️ Nessun annuncio trovato nella pagina {page}")
                     continue
                     
-                update_log(f"🚗 Trovati {len(articles)} annunci nella pagina {page}")
-                stats['processed'] += len(articles)
+                st.write(f"🚗 Trovati {len(articles)} annunci nella pagina {page}")
 
                 for idx, article in enumerate(articles, 1):
                     try:
-                        progress = (stats['processed'] / (total_pages * len(articles)))
-                        progress_bar.progress(min(progress, 1.0))
-                        
-                        update_log(f"📝 [{idx}/{len(articles)}] Processando annuncio...")
+                        st.write(f"📝 [{idx}/{len(articles)}] Processando annuncio...")
                         
                         # Identificazione annuncio
                         listing_id = article.get('id', '')
@@ -212,7 +181,7 @@ class AutoTracker:
                         if not url_elem or 'href' not in url_elem.attrs:
                             url_elem = article.select_one('.dp-listing-item-title-wrapper a')
                             if not url_elem or 'href' not in url_elem.attrs:
-                                update_log("⚠️ URL non trovato per questo annuncio", "warning")
+                                st.warning("⚠️ URL non trovato per questo annuncio")
                                 continue
 
                         url = f"https://www.autoscout24.it{url_elem['href']}"
@@ -222,13 +191,6 @@ class AutoTracker:
                         title = title_elem.text.strip() if title_elem else "N/D"
                         version = version_elem.text.strip() if version_elem else ""
                         full_title = f"{title} {version}".strip()
-                        
-                        if existing_listing:
-                            stats['updated'] += 1
-                            update_log(f"🔄 Aggiornamento: {full_title}")
-                        else:
-                            stats['new'] += 1
-                            update_log(f"✨ Nuovo annuncio: {full_title}")
 
                         # Estrazione prezzi
                         price_section = article.select_one('[data-testid="price-section"]')
@@ -260,10 +222,6 @@ class AutoTracker:
                                 if regular_price:
                                     prices['original_price'] = self._extract_price(regular_price.text)
 
-                        # Aggiorna statistiche totali
-                        if prices['original_price']:
-                            stats['total_value'] += prices['original_price']
-
                         # Estrazione dettagli veicolo
                         details = self._extract_vehicle_details(article)
 
@@ -271,16 +229,17 @@ class AutoTracker:
                         images = []
                         vision_results = {}
                         
-                        # Gestione delle richieste Vision
+                        # Gestione delle richieste Vision in base ai limiti
                         should_process_vision = (
-                            not no_targa and
+                            not no_targa and  # Solo l'OCR viene saltato se no_targa è True
                             vision_service and 
                             vision_requests_count < vision_requests_per_hour and
                             (not existing_listing or not existing_listing.get('plate'))
                         )
-                        
+                                                
                         if existing_listing and existing_listing.get('plate'):
-                            update_log(f"ℹ️ Annuncio {listing_id} già presente con targa - mantengo dati immagini esistenti")
+                            # Se l'annuncio esiste già e ha una targa, mantieni i dati delle immagini esistenti
+                            st.info(f"ℹ️ Annuncio {listing_id} già presente con targa - mantengo dati immagini esistenti")
                             images = existing_listing.get('image_urls', [])
                             vision_results = {
                                 'plate': existing_listing.get('plate'),
@@ -289,30 +248,39 @@ class AutoTracker:
                                 'last_plate_analysis': existing_listing.get('last_plate_analysis'),
                             }
                         else:
+                            # Nuovo annuncio o annuncio esistente senza targa
                             if not existing_listing:
-                                update_log("🆕 Nuovo annuncio, recupero immagini...")
+                                st.write("🆕 Nuovo annuncio, recupero immagini...")
                             else:
-                                update_log("🔄 Annuncio esistente senza targa, recupero immagini...")
+                                st.write("🔄 Annuncio esistente senza targa, recupero immagini...")
                                 
+                            # Recupera sempre le immagini, indipendentemente da no_targa
                             images = self.get_listing_images(url)
                             
+                            # Esegui l'analisi OCR solo se no_targa è False
                             if images and should_process_vision:
                                 try:
-                                    time.sleep(2)
+                                    time.sleep(2)  # Minimo 2 secondi tra le richieste Vision
                                     vision_results = vision_service.analyze_vehicle_images(images)
                                     vision_requests_count += 1
                                     
                                     if vision_results and vision_results.get('plate'):
-                                        update_log(f"✅ Targa rilevata: {vision_results['plate']} (confidenza: {vision_results['plate_confidence']:.2%})", "success")
+                                        st.success(f"✅ Targa rilevata: {vision_results['plate']} (confidenza: {vision_results['plate_confidence']:.2%})")
                                     else:
-                                        update_log("⚠️ Nessuna targa rilevata nelle immagini", "warning")
+                                        st.warning("⚠️ Nessuna targa rilevata nelle immagini")
                                 except Exception as e:
                                     if "429" in str(e):
-                                        update_log("⚠️ Limite richieste Vision raggiunto", "warning")
+                                        st.warning("⚠️ Limite richieste Vision raggiunto, salto analisi immagini")
                                         vision_requests_count = vision_requests_per_hour
                                     else:
-                                        update_log(f"❌ Errore analisi Vision: {str(e)}", "error")
-
+                                        st.error(f"❌ Errore analisi Vision: {str(e)}")
+                            else:
+                                vision_results = {}
+                                if no_targa:
+                                    st.info("ℹ️ Dealer configurato come NO Targa, salto analisi OCR")
+                                else:
+                                    st.info("ℹ️ Salto analisi Vision (limite richieste raggiunto)")
+                                        
                         # Creazione dizionario annuncio
                         listing = {
                             'id': listing_id,
@@ -341,10 +309,10 @@ class AutoTracker:
                             } if vision_results else existing_listing.get('vision_cache') if existing_listing else {},
                             'scrape_date': datetime.now(),
                             'active': True,
-                            'no_targa': no_targa
+                            'no_targa': no_targa  # Aggiungi il flag no_targa all'annuncio
                         }
 
-                        # Mantieni campi importanti se esistenti
+                        # Se è un aggiornamento di un annuncio esistente, mantieni alcuni campi importanti
                         if existing_listing:
                             if existing_listing.get('plate_edited'):
                                 listing['plate'] = existing_listing['plate']
@@ -356,43 +324,20 @@ class AutoTracker:
                                 listing['notes'] = existing_listing['notes']
 
                         all_listings.append(listing)
+                        st.write(f"✅ Annuncio processato: {full_title}")
                         
                     except Exception as e:
-                        update_log(f"❌ Errore nel parsing dell'annuncio: {str(e)}", "error")
+                        st.error(f"❌ Errore nel parsing dell'annuncio: {str(e)}")
                         continue
-
-            # Calcolo statistiche finali e variazioni
-            time_taken = (datetime.now() - stats['start_time']).total_seconds()
-            delta_count = len(all_listings) - previous_stats['count']
-            delta_value = stats['total_value'] - previous_stats['total_value']
             
-            # Aggiorna metriche
-            with metrics_container[0]:
-                st.metric("Totale Annunci", len(all_listings), 
-                        f"{delta_count:+d}" if delta_count != 0 else None)
-            with metrics_container[1]:
-                st.metric("Nuovi Annunci", stats['new'])
-            with metrics_container[2]:
-                st.metric("Valore Totale", f"€{stats['total_value']:,.0f}", 
-                        f"€{delta_value:+,.0f}" if delta_value != 0 else None)
-
-            # Log finale
-            update_log(f"""
-                ✅ Scraping completato in {time_taken:.1f} secondi
-                📊 Riepilogo:
-                • Totale annunci: {len(all_listings)} ({delta_count:+d})
-                • Nuovi: {stats['new']}
-                • Aggiornati: {stats['updated']}
-                • Valore totale: €{stats['total_value']:,.0f} ({delta_value:+,.0f}€)
-            """, "success")
-            
+            st.success(f"🎉 Scraping completato. Trovati {len(all_listings)} annunci totali")
             return all_listings
                 
         except requests.RequestException as e:
-            update_log(f"❌ Errore nella richiesta HTTP: {str(e)}", "error")
+            st.error(f"❌ Errore nella richiesta HTTP: {str(e)}")
             return []
         except Exception as e:
-            update_log(f"❌ Errore imprevisto: {str(e)}", "error")
+            st.error(f"❌ Errore imprevisto: {str(e)}")
             return []
 
     def _extract_vehicle_details(self, article) -> dict:
@@ -434,45 +379,6 @@ class AutoTracker:
                 
         return details
 
-    def get_previous_stats(self, dealer_id: str) -> Dict:
-        """
-        Recupera le statistiche precedenti di un dealer dal database
-        
-        Args:
-            dealer_id: ID del concessionario
-            
-        Returns:
-            Dizionario con le statistiche precedenti o None se non disponibili
-        """
-        try:
-            # Recupera l'ultimo record di statistiche
-            stats_ref = self.db.collection('dealer_stats')\
-                .where('dealer_id', '==', dealer_id)\
-                .order_by('calculated_at', direction=firestore.Query.DESCENDING)\
-                .limit(1)\
-                .stream()
-            
-            stats_list = list(stats_ref)
-            if stats_list:
-                return stats_list[0].to_dict()
-                
-            # Se non esistono statistiche precedenti, ritorna un dizionario vuoto
-            return {
-                'total_cars': 0,
-                'total_value': 0,
-                'avg_price': 0,
-                'missing_plates': 0
-            }
-                
-        except Exception as e:
-            st.error(f"❌ Errore nel recupero statistiche precedenti: {str(e)}")
-            return {
-                'total_cars': 0,
-                'total_value': 0,
-                'avg_price': 0,
-                'missing_plates': 0
-            }
-    
     def _should_reanalyze_listing(self, last_analysis, plate_confidence, current_price, cached_price) -> bool:
         """Determina se un annuncio necessita di rianalisi"""
         if not last_analysis:
