@@ -1,8 +1,7 @@
 import pandas as pd 
 import streamlit as st
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import List, Dict, Optional
-from utils.datetime_utils import calculate_date_diff, get_current_time, normalize_datetime, normalize_df_dates
 
 class AlertSystem:
     def __init__(self, tracker):
@@ -11,301 +10,367 @@ class AlertSystem:
 
     def initialize_session_state(self):
         """Inizializza lo stato delle notifiche nella sessione"""
-        if 'notifications' not in st.session_state:
-            st.session_state.notifications = []
-        if 'read_notifications' not in st.session_state:
-            st.session_state.read_notifications = set()
-        if 'last_check' not in st.session_state:
-            st.session_state.last_check = {}
-        if 'alert_settings' not in st.session_state:
-            st.session_state.alert_settings = {
-                'price_threshold': 20,  # Variazione prezzo % 
-                'removal_threshold': 5,  # Numero rimozioni in 24h
-                'check_interval': 3600,  # Secondi tra controlli
-                'enabled_types': {
-                    'price_alert': True,
-                    'duplicate': True,
-                    'removal_alert': True,
-                    'reappearance': True
+        if 'alerts' not in st.session_state:
+            st.session_state.alerts = []
+        if 'alert_rules' not in st.session_state:
+            st.session_state.alert_rules = []
+
+    def manage_alert_rules(self):
+        """Gestisce le regole degli alert"""
+        st.subheader("⚙️ Gestione Alert")
+        
+        # Form aggiunta regola
+        with st.form("add_alert_rule"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                alert_type = st.selectbox(
+                    "Tipo Alert",
+                    options=[
+                        "price_change",
+                        "reappearance",
+                        "removal",
+                        "suspicious_activity"
+                    ]
+                )
+            
+            with col2:
+                threshold = st.number_input(
+                    "Soglia",
+                    min_value=0.0,
+                    max_value=100.0,
+                    value=10.0,
+                    help="Soglia per l'attivazione dell'alert (es. variazione % prezzo)"
+                )
+            
+            enabled = st.checkbox("Attivo", value=True)
+            
+            if st.form_submit_button("Aggiungi Regola"):
+                new_rule = {
+                    'id': datetime.now().timestamp(),
+                    'type': alert_type,
+                    'threshold': threshold,
+                    'enabled': enabled,
+                    'created_at': datetime.now()
                 }
-            }
-
-    def add_notification(self, message: str, alert_type: str, details: Dict):
-        """
-        Aggiunge una nuova notifica
+                st.session_state.alert_rules.append(new_rule)
+                st.success("✅ Regola aggiunta")
         
-        Args:
-            message: Messaggio della notifica
-            alert_type: Tipo di alert
-            details: Dettagli aggiuntivi dell'alert
-        """
-        if not st.session_state.alert_settings['enabled_types'].get(alert_type, True):
-            return
+        # Lista regole esistenti
+        if st.session_state.alert_rules:
+            st.write("📋 Regole Configurate")
             
-        current_time = get_current_time()
-        notification_id = f"{alert_type}_{current_time.timestamp()}"
-        
-        notification = {
-            'id': notification_id,
-            'message': message,
-            'type': alert_type,
-            'details': details,
-            'timestamp': current_time,
-            'priority': self._get_alert_priority(alert_type, details)
-        }
-        
-        if not self._is_duplicate_notification(notification):
-            st.session_state.notifications.append(notification)
-
-    def mark_as_read(self, notification_id: str):
-        """Marca una notifica come letta"""
-        st.session_state.read_notifications.add(notification_id)
-
-    def clear_all_notifications(self):
-        """Rimuove tutte le notifiche"""
-        st.session_state.notifications = []
-        st.session_state.read_notifications = set()
-
-    def get_unread_notifications(self):
-        """Recupera le notifiche non lette ordinate per priorità"""
-        unread = [n for n in st.session_state.notifications 
-                 if n['id'] not in st.session_state.read_notifications]
-        return sorted(unread, 
-                     key=lambda x: (-x['priority'], x['timestamp']), 
-                     reverse=True)
-
-    def show_notifications(self):
-        """Mostra le notifiche attive con gestione stato"""
-        unread = self.get_unread_notifications()
-        if not unread:
-            return
-            
-        st.sidebar.markdown("---")
-        col1, col2 = st.sidebar.columns([3, 1])
-        
-        with col1:
-            st.subheader("🔔 Notifiche")
-        with col2:
-            if st.button("🗑️ Pulisci", key="clear_notifications"):
-                self.clear_all_notifications()
-                st.rerun()
-        
-        for notification in unread:
-            with st.sidebar.expander(
-                self._format_notification_title(notification), 
-                expanded=True
-            ):
-                self._render_notification_content(notification)
-                
-                col1, col2 = st.columns([3, 1])
-                with col2:
-                    if st.button("✓", key=f"mark_read_{notification['id']}"):
-                        self.mark_as_read(notification['id'])
+            for rule in st.session_state.alert_rules:
+                with st.expander(f"Regola: {rule['type']}"):
+                    st.write(f"Soglia: {rule['threshold']}%")
+                    st.write(f"Stato: {'Attivo' if rule['enabled'] else 'Disattivo'}")
+                    if st.button("❌ Rimuovi", key=f"remove_{rule['id']}"):
+                        st.session_state.alert_rules.remove(rule)
+                        st.success("✅ Regola rimossa")
                         st.rerun()
 
     def check_alert_conditions(self, dealer_id: str):
-        """Controlla e genera alert per un dealer"""
-        try:
-            # Verifica intervallo minimo tra controlli
-            current_time = get_current_time()
-            last_check = st.session_state.last_check.get(dealer_id)
+        """Controlla le condizioni per gli alert"""
+        if not st.session_state.alert_rules:
+            return
             
-            if last_check:
-                time_diff = calculate_date_diff(last_check, current_time)
-                if time_diff and time_diff < st.session_state.alert_settings['check_interval']:
-                    return
-
-            # Recupera dati necessari
-            listings = self.tracker.get_active_listings(dealer_id)
-            if not listings:
-                return
-
-            # Check duplicati
-            if st.session_state.alert_settings['enabled_types']['duplicate']:
-                self._check_duplicates(listings)
-
-            # Check variazioni prezzo
-            if st.session_state.alert_settings['enabled_types']['price_alert']:
-                self._check_price_variations(listings)
-
-            # Check rimozioni
-            if st.session_state.alert_settings['enabled_types']['removal_alert']:
-                self._check_removals(dealer_id)
-
-            # Check riapparizioni
-            if st.session_state.alert_settings['enabled_types']['reappearance']:
-                self._check_reappearances(dealer_id)
-
-            # Aggiorna timestamp ultimo controllo
-            st.session_state.last_check[dealer_id] = current_time
-
-        except Exception as e:
-            st.error(f"❌ Errore nel controllo alert: {str(e)}")
-
-    def _check_duplicates(self, listings: List[Dict]):
-        """Controlla presenza di duplicati"""
-        duplicates = [l for l in listings if l.get('duplicate_of')]
-        if duplicates:
-            self.add_notification(
-                f"Rilevati {len(duplicates)} annunci duplicati",
-                'duplicate',
-                {
-                    'listings': [d['id'] for d in duplicates],
-                    'details': [{
-                        'id': d['id'],
-                        'duplicate_of': d['duplicate_of'],
-                        'title': d.get('title', 'N/D'),
-                        'price': d.get('original_price')
-                    } for d in duplicates]
-                }
-            )
-
-    def _check_price_variations(self, listings: List[Dict]):
-        """Controlla variazioni significative dei prezzi"""
-        threshold = st.session_state.alert_settings['price_threshold']
-        
-        for listing in listings:
-            if listing.get('price_history'):
-                history = listing['price_history']
-                if len(history) >= 2:
-                    latest = history[-1]['price']
-                    previous = history[-2]['price']
-                    variation = abs((latest - previous) / previous * 100)
-                    
-                    if variation > threshold:
-                        self.add_notification(
-                            f"Variazione prezzo {variation:.1f}% per {listing.get('title', listing['id'])}",
-                            'price_alert',
-                            {
-                                'listing_id': listing['id'],
-                                'title': listing.get('title'),
-                                'variation': variation,
-                                'old_price': previous,
-                                'new_price': latest,
-                                'timestamp': get_current_time()
-                            }
-                        )
-
-    def _check_removals(self, dealer_id: str):
-        """Controlla rimozioni recenti"""
-        threshold = st.session_state.alert_settings['removal_threshold']
-        current_time = get_current_time()
-        cutoff_time = current_time - timedelta(hours=24)
-        
-        history = self.tracker.get_dealer_history(dealer_id)
-        if history:
-            df_history = pd.DataFrame(history)
-            df_history = normalize_df_dates(df_history)
-            
-            recent_removals = df_history[
-                (df_history['event'] == 'removed') & 
-                (df_history['date'] > cutoff_time)
-            ]
-            
-            if len(recent_removals) >= threshold:
-                self.add_notification(
-                    f"Rilevate {len(recent_removals)} rimozioni nelle ultime 24h",
-                    'removal_alert',
-                    {
-                        'removals': recent_removals.to_dict('records'),
-                        'count': len(recent_removals),
-                        'threshold': threshold,
-                        'period': '24h'
-                    }
-                )
-
-    def _check_reappearances(self, dealer_id: str):
-        """Controlla veicoli riapparsi"""
         history = self.tracker.get_dealer_history(dealer_id)
         if not history:
             return
             
-        df_history = pd.DataFrame(history)
-        df_history = normalize_df_dates(df_history)
-        reappeared = df_history[df_history['event'] == 'reappeared']
+        # Analizza ultimi eventi
+        recent_events = [
+            event for event in history 
+            if event['date'] >= datetime.now() - timedelta(hours=24)
+        ]
         
-        for listing_id in reappeared['listing_id'].unique():
-            listing_history = df_history[df_history['listing_id'] == listing_id]
-            reapp_count = len(listing_history[listing_history['event'] == 'reappeared'])
-            
-            if reapp_count > 1:
+        for rule in st.session_state.alert_rules:
+            if not rule['enabled']:
+                continue
+                
+            if rule['type'] == 'price_change':
+                self._check_price_changes(recent_events, rule['threshold'])
+            elif rule['type'] == 'reappearance':
+                self._check_reappearances(recent_events)
+            elif rule['type'] == 'removal':
+                self._check_removals(recent_events)
+            elif rule['type'] == 'suspicious_activity':
+                self._check_suspicious_activity(recent_events, rule['threshold'])
+
+    def _check_price_changes(self, events: List[Dict], threshold: float):
+        """Controlla variazioni di prezzo significative"""
+        price_changes = [
+            event for event in events 
+            if event['event'] == 'price_changed'
+        ]
+        
+        for event in price_changes:
+            if 'price' in event and 'previous_price' in event:
+                variation = abs((event['price'] - event['previous_price']) / event['previous_price'] * 100)
+                if variation >= threshold:
+                    self.add_notification(
+                        f"Variazione prezzo significativa ({variation:.1f}%) per annuncio {event['listing_id']}",
+                        'price_alert',
+                        event
+                    )
+
+    def _check_reappearances(self, events: List[Dict]):
+        """Controlla riapparizioni di annunci"""
+        reappearances = [
+            event for event in events 
+            if event['event'] == 'reappeared'
+        ]
+        
+        for event in reappearances:
+            self.add_notification(
+                f"Annuncio riapparso: {event['listing_id']}",
+                'reappearance_alert',
+                event
+            )
+
+    def _check_removals(self, events: List[Dict]):
+        """Controlla rimozioni di annunci"""
+        removals = [
+            event for event in events 
+            if event['event'] == 'removed'
+        ]
+        
+        if len(removals) >= 3:  # Alert se troppe rimozioni in 24h
+            self.add_notification(
+                f"Rilevate {len(removals)} rimozioni nelle ultime 24 ore",
+                'removal_alert',
+                {'removals': removals}
+            )
+
+    def _check_suspicious_activity(self, events: List[Dict], threshold: float):
+        """Controlla attività sospette"""
+        # Raggruppa eventi per annuncio
+        from collections import defaultdict
+        events_by_listing = defaultdict(list)
+        
+        for event in events:
+            events_by_listing[event['listing_id']].append(event)
+        
+        # Cerca pattern sospetti
+        for listing_id, listing_events in events_by_listing.items():
+            if len(listing_events) >= threshold:
                 self.add_notification(
-                    f"Veicolo riapparso {reapp_count} volte",
-                    'reappearance',
-                    {
-                        'listing_id': listing_id,
-                        'reappearance_count': reapp_count,
-                        'history': listing_history.to_dict('records')
-                    }
+                    f"Attività sospetta rilevata per annuncio {listing_id}",
+                    'suspicious_alert',
+                    {'events': listing_events}
                 )
 
-    def _get_alert_priority(self, alert_type: str, details: Dict) -> int:
-        """Determina la priorità dell'alert"""
-        priorities = {
-            'price_alert': lambda d: 2 if d.get('variation', 0) > 30 else 1,
-            'duplicate': lambda d: 2 if len(d.get('listings', [])) > 3 else 1,
-            'removal_alert': lambda d: 2 if d.get('count', 0) > 10 else 1,
-            'reappearance': lambda d: 2 if d.get('reappearance_count', 0) > 3 else 1
+    def add_notification(self, message: str, alert_type: str, details: Dict):
+        """Aggiunge una nuova notifica"""
+        notification = {
+            'id': datetime.now().timestamp(),
+            'message': message,
+            'type': alert_type,
+            'details': details,
+            'timestamp': datetime.now(),
+            'read': False
         }
         
-        priority_func = priorities.get(alert_type, lambda d: 1)
-        return priority_func(details)
+        st.session_state.alerts.append(notification)
 
-    def _is_duplicate_notification(self, new_notification: Dict) -> bool:
-        """Verifica se una notifica simile esiste già"""
-        current_time = get_current_time()
-        
-        for existing in st.session_state.notifications[-10:]:
-            if (existing['type'] == new_notification['type'] and
-                existing['details'].get('listing_id') == 
-                new_notification['details'].get('listing_id')):
-                
-                time_diff = calculate_date_diff(existing['timestamp'], current_time)
-                if time_diff and time_diff < 1:  # Meno di un giorno
-                    return True
-        return False
-
-    def _format_notification_title(self, notification: Dict) -> str:
-        """Formatta il titolo della notifica con icona appropriata"""
-        icons = {
-            'price_alert': '💰',
-            'duplicate': '🔄',
-            'removal_alert': '❌',
-            'reappearance': '↩️'
-        }
-        priority_marker = '🔴' if notification['priority'] > 1 else '🟡'
-        icon = icons.get(notification['type'], '❓')
-        return f"{priority_marker} {icon} {notification['message']}"
-
-    def _render_notification_content(self, notification: Dict):
-        """Renderizza il contenuto della notifica in base al tipo"""
-        details = notification['details']
-        
-        st.write(f"Data: {notification['timestamp'].strftime('%d/%m/%Y %H:%M')}")
-        
-        if notification['type'] == 'price_alert':
-            st.write(f"Veicolo: {details.get('title', 'N/D')}")
-            st.write(f"Variazione: {details['variation']:.1f}%")
-            col1, col2 = st.columns(2)
-            with col1:
-                st.write(f"Prezzo precedente: €{details['old_price']:,.0f}")
-            with col2:
-                st.write(f"Nuovo prezzo: €{details['new_price']:,.0f}")
-                
-        elif notification['type'] == 'duplicate':
-            st.write(f"Annunci coinvolti: {len(details['listings'])}")
-            for dup in details.get('details', []):
-                st.write(f"• {dup['title']} (€{dup['price']:,.0f})")
-                
-        elif notification['type'] == 'removal_alert':
-            st.write(f"Totale rimozioni: {details['count']}")
-            st.write(f"Periodo: ultime {details['period']}")
+    def show_notifications(self):
+        """Mostra le notifiche attive"""
+        if not st.session_state.alerts:
+            return
             
-        elif notification['type'] == 'reappearance':
-            st.write(f"Numero riapparizioni: {details['reappearance_count']}")
-            if 'history' in details:
-                last_event = details['history'][-1]
-                st.write(f"Ultima riapparizione: {last_event['date']}")
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("🔔 Notifiche")
+        
+        for alert in sorted(
+            st.session_state.alerts,
+            key=lambda x: x['timestamp'],
+            reverse=True
+        ):
+            if not alert['read']:
+                with st.sidebar.expander(alert['message'], expanded=True):
+                    st.write(f"Tipo: {alert['type']}")
+                    st.write(f"Data: {alert['timestamp'].strftime('%d/%m/%Y %H:%M')}")
+                    if st.button("✓ Segna come letta", key=f"mark_read_{alert['id']}"):
+                        alert['read'] = True
+                        st.rerun()
 
-        if 'listing_id' in details:
-            st.caption(f"ID Annuncio: {details['listing_id']}")
+    def track_alert_history(self):
+        """Mantiene uno storico degli alert"""
+        if not hasattr(self, 'alert_history'):
+            self.alert_history = []
+            
+        # Aggiungi nuovi alert allo storico
+        for alert in st.session_state.alerts:
+            if alert['read'] and alert not in self.alert_history:
+                self.alert_history.append(alert)
+        
+        # Rimuovi alert letti dalla lista attiva
+        st.session_state.alerts = [
+            alert for alert in st.session_state.alerts 
+            if not alert['read']
+        ]
+
+def show_alerts_dashboard(alert_system):
+    """Mostra dashboard degli alert"""
+    st.title("📊 Dashboard Alert")
+    
+    # Gestione regole
+    alert_system.manage_alert_rules()
+    
+    # Storico alert
+    if alert_system.alert_history:
+        st.subheader("📜 Storico Alert")
+        
+        df = pd.DataFrame(alert_system.alert_history)
+        df['date'] = pd.to_datetime(df['timestamp'])
+        
+        # Grafico distribuzione
+        fig = go.Figure()
+        
+        # Distribuzione alert per tipo
+        alert_counts = df['type'].value_counts()
+        
+        fig.add_trace(go.Bar(
+            x=alert_counts.index,
+            y=alert_counts.values,
+            text=alert_counts.values,
+            textposition='auto',
+        ))
+        
+        fig.update_layout(
+            title="Distribuzione Alert per Tipo",
+            xaxis_title="Tipo Alert",
+            yaxis_title="Numero Alert",
+            height=400
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Timeline alert
+        timeline_fig = go.Figure()
+        
+        df_timeline = df.groupby([df['date'].dt.date, 'type']).size().reset_index(name='count')
+        
+        for alert_type in df['type'].unique():
+            type_data = df_timeline[df_timeline['type'] == alert_type]
+            timeline_fig.add_trace(go.Scatter(
+                x=type_data['date'],
+                y=type_data['count'],
+                name=alert_type,
+                mode='lines+markers'
+            ))
+            
+        timeline_fig.update_layout(
+            title="Timeline Alert",
+            xaxis_title="Data",
+            yaxis_title="Numero Alert",
+            height=400,
+            showlegend=True
+        )
+        
+        st.plotly_chart(timeline_fig, use_container_width=True)
+        
+        # Tabella dettaglio
+        st.subheader("📋 Dettaglio Alert")
+        
+        df_display = df[['message', 'type', 'timestamp']].copy()
+        df_display['timestamp'] = df_display['timestamp'].dt.strftime('%d/%m/%Y %H:%M')
+        df_display.columns = ['Messaggio', 'Tipo', 'Data']
+        
+        st.dataframe(
+            df_display.sort_values('Data', ascending=False),
+            hide_index=True,
+            use_container_width=True
+        )
+        
+        # Metriche aggregate
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            total_alerts = len(df)
+            st.metric("Totale Alert", total_alerts)
+            
+        with col2:
+            alerts_today = len(df[df['date'].dt.date == datetime.now().date()])
+            st.metric("Alert Oggi", alerts_today)
+            
+        with col3:
+            avg_daily = len(df) / (df['date'].max() - df['date'].min()).days
+            st.metric("Media Giornaliera", f"{avg_daily:.1f}")
+
+def export_alert_report(alert_history: List[Dict]) -> pd.DataFrame:
+    """Genera report dettagliato degli alert"""
+    if not alert_history:
+        return pd.DataFrame()
+        
+    # Prepara dati
+    rows = []
+    for alert in alert_history:
+        row = {
+            'Data': alert['timestamp'],
+            'Tipo': alert['type'],
+            'Messaggio': alert['message']
+        }
+        
+        # Aggiungi dettagli specifici per tipo
+        details = alert['details']
+        if alert['type'] == 'price_alert':
+            row['Variazione'] = f"{details.get('variation', 0):.1f}%"
+            row['Prezzo Precedente'] = details.get('previous_price', 'N/D')
+            row['Nuovo Prezzo'] = details.get('price', 'N/D')
+            
+        elif alert['type'] == 'reappearance_alert':
+            row['Giorni Assente'] = details.get('days_gone', 'N/D')
+            row['Variazione Prezzo'] = details.get('price_variation', 'N/D')
+            
+        rows.append(row)
+    
+    df = pd.DataFrame(rows)
+    
+    # Calcola metriche aggiuntive
+    summary = {
+        'periodo_analisi': f"{df['Data'].min().strftime('%d/%m/%Y')} - {df['Data'].max().strftime('%d/%m/%Y')}",
+        'totale_alert': len(df),
+        'distribuzione_tipi': df['Tipo'].value_counts().to_dict(),
+        'alert_per_giorno': len(df) / (df['Data'].max() - df['Data'].min()).days
+    }
+    
+    return df, summary
+
+def analyze_alert_patterns(alert_history: List[Dict]) -> Dict:
+    """Analizza pattern negli alert"""
+    if not alert_history:
+        return {}
+        
+    df = pd.DataFrame(alert_history)
+    patterns = {
+        'time_patterns': {},
+        'correlation_patterns': {},
+        'frequency_patterns': {}
+    }
+    
+    # Pattern temporali
+    df['hour'] = pd.to_datetime(df['timestamp']).dt.hour
+    patterns['time_patterns'] = {
+        'peak_hours': df.groupby('hour').size().nlargest(3).index.tolist(),
+        'daily_distribution': df.groupby('hour').size().to_dict()
+    }
+    
+    # Pattern correlazione
+    if len(df) >= 2:
+        alert_matrix = pd.crosstab(df['type'], df['type'].shift())
+        patterns['correlation_patterns'] = {
+            'common_sequences': alert_matrix.values.tolist(),
+            'most_common_pair': alert_matrix.max().idxmax()
+        }
+    
+    # Pattern frequenza
+    df['date'] = pd.to_datetime(df['timestamp']).dt.date
+    daily_counts = df.groupby('date').size()
+    patterns['frequency_patterns'] = {
+        'avg_daily': daily_counts.mean(),
+        'std_daily': daily_counts.std(),
+        'peak_days': daily_counts.nlargest(3).index.tolist()
+    }
+    
+    return patterns

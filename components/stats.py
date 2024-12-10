@@ -59,7 +59,7 @@ def show_dealer_overview(tracker, dealer_id: str):
                  help="Numero di auto senza targa")
         
     # Statistiche aggiuntive in expander
-    with st.expander("📊 Statistiche Dettagliate", expanded=True):
+    with st.expander("📊 Statistiche Dettagliate", expanded=False):
         col1, col2 = st.columns(2)
         
         with col1:
